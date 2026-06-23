@@ -7,7 +7,7 @@ import traceback
 import threading
 import random
 import requests
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 
 # Load .env file manually if it exists to avoid hardcoding API secrets
 if os.path.exists('.env'):
@@ -159,8 +159,44 @@ def run_cell():
         sys.stderr = stderr_capture
         
         try:
-            # Execute python code in the context of the persistent global namespace
-            exec(code, kernel_namespace)
+            # Parse and execute python code or shell magic commands
+            lines = code.split('\n')
+            current_py_lines = []
+            
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('!'):
+                    # Execute accumulated Python code first
+                    if current_py_lines:
+                        py_code = '\n'.join(current_py_lines)
+                        current_py_lines = []
+                        exec(py_code, kernel_namespace)
+                    
+                    # Execute the shell command
+                    cmd = stripped[1:].strip()
+                    if cmd:
+                        import subprocess
+                        process = subprocess.Popen(
+                            cmd,
+                            shell=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        stdout_data, stderr_data = process.communicate()
+                        if stdout_data:
+                            sys.stdout.write(stdout_data)
+                        if stderr_data:
+                            sys.stderr.write(stderr_data)
+                        if process.returncode != 0:
+                            raise Exception(f"Command '{cmd}' failed with exit status {process.returncode}")
+                else:
+                    current_py_lines.append(line)
+            
+            # Execute remaining Python code
+            if current_py_lines:
+                py_code = '\n'.join(current_py_lines)
+                exec(py_code, kernel_namespace)
         except Exception as e:
             success = False
             # Print the traceback directly to capture it in stderr
@@ -215,6 +251,7 @@ def ai_call():
     token = data.get('token', DEFAULT_API_TOKEN)
     model = data.get('model', DEFAULT_API_MODEL)
     messages = data.get('messages', [])
+    stream = data.get('stream', False)
     
     headers = {
         'Content-Type': 'application/json'
@@ -227,17 +264,34 @@ def ai_call():
         'messages': messages,
         'temperature': 0.7
     }
+    if stream:
+        payload['stream'] = True
     
     try:
-        # Proxy request to user-configured API URL
-        response = requests.post(url, headers=headers, json=payload, timeout=45)
-        if response.status_code == 200:
-            return jsonify(response.json())
+        if stream:
+            # Proxy streaming request to user-configured API URL
+            response = requests.post(url, headers=headers, json=payload, timeout=45, stream=True)
+            if response.status_code == 200:
+                def generate():
+                    for chunk in response.iter_lines():
+                        if chunk:
+                            yield chunk + b'\n'
+                return Response(generate(), mimetype='text/event-stream')
+            else:
+                return jsonify({
+                    'error': True,
+                    'message': f"API returned status code {response.status_code}: {response.text}"
+                }), response.status_code
         else:
-            return jsonify({
-                'error': True,
-                'message': f"API returned status code {response.status_code}: {response.text}"
-            }), response.status_code
+            # Proxy request to user-configured API URL
+            response = requests.post(url, headers=headers, json=payload, timeout=45)
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                return jsonify({
+                    'error': True,
+                    'message': f"API returned status code {response.status_code}: {response.text}"
+                }), response.status_code
     except Exception as e:
         return jsonify({
             'error': True,
