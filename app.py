@@ -248,4 +248,5 @@ def ai_call():
 if __name__ == '__main__':
     # Ensure static folder exists
     os.makedirs(app.static_folder, exist_ok=True)
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    port = int(os.environ.get('OPENI_SELF_PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
