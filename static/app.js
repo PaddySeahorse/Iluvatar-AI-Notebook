@@ -414,6 +414,85 @@ function renderCells() {
             });
             
             inputArea.appendChild(copilotBar);
+
+            // Render AI Code suggestion card if it exists
+            if (cell.aiSuggestion) {
+                const previewEl = document.createElement('div');
+                previewEl.className = 'ai-suggestion-preview';
+                previewEl.id = `suggestion_preview_${cell.id}`;
+                
+                const header = document.createElement('div');
+                header.className = 'suggestion-header';
+                header.innerHTML = `
+                    <span><i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐代码 (${cell.aiSuggestion.isGenerating ? '生成中...' : '生成完毕'}):</span>
+                `;
+                
+                const actions = document.createElement('div');
+                actions.className = 'suggestion-actions';
+                if (cell.aiSuggestion.isGenerating) {
+                    actions.style.display = 'none';
+                }
+                
+                const acceptOverwrite = document.createElement('button');
+                acceptOverwrite.className = 'suggestion-btn accept-overwrite';
+                acceptOverwrite.innerHTML = '<i class="fa-solid fa-check"></i> 覆盖当前单元格';
+                acceptOverwrite.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    cell.content = cell.aiSuggestion.code;
+                    delete cell.aiSuggestion;
+                    renderCells();
+                    saveNotebookToLocalStorage();
+                    showFloatingNotification('已覆盖单元格代码！');
+                });
+                
+                const acceptInsert = document.createElement('button');
+                acceptInsert.className = 'suggestion-btn accept-insert';
+                acceptInsert.innerHTML = '<i class="fa-solid fa-plus"></i> 插入为新单元格';
+                acceptInsert.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const currentIdx = cells.findIndex(c => c.id === cell.id);
+                    const newCell = {
+                        id: 'cell_' + Math.random().toString(36).substr(2, 9),
+                        type: 'code',
+                        content: cell.aiSuggestion.code,
+                        output: null,
+                        elapsedTime: null,
+                        success: true,
+                        isExecuting: false
+                    };
+                    cells.splice(currentIdx + 1, 0, newCell);
+                    delete cell.aiSuggestion;
+                    activeCellId = newCell.id;
+                    renderCells();
+                    saveNotebookToLocalStorage();
+                    showFloatingNotification('已将推荐代码插入为新单元格！');
+                });
+                
+                const discardBtn = document.createElement('button');
+                discardBtn.className = 'suggestion-btn discard';
+                discardBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> 放弃';
+                discardBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    delete cell.aiSuggestion;
+                    renderCells();
+                    saveNotebookToLocalStorage();
+                });
+                
+                actions.appendChild(acceptOverwrite);
+                actions.appendChild(acceptInsert);
+                actions.appendChild(discardBtn);
+                header.appendChild(actions);
+                previewEl.appendChild(header);
+                
+                const codePre = document.createElement('pre');
+                const codeCode = document.createElement('code');
+                codeCode.className = 'language-python';
+                codeCode.innerText = cell.aiSuggestion.code || '等待生成...';
+                codePre.appendChild(codeCode);
+                previewEl.appendChild(codePre);
+                
+                inputArea.appendChild(previewEl);
+            }
         } else {
             // Markdown Cell
             if (cell.isEditingMarkdown) {
@@ -728,6 +807,87 @@ async function callLlmProxy(messages) {
     throw new Error("Invalid format returned by LLM endpoint");
 }
 
+// Streaming call to LLM Endpoint
+async function callLlmProxyStream(messages, onChunk, onDone) {
+    const res = await fetch('/api/ai_call', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            url: apiConfig.url,
+            token: apiConfig.token,
+            model: apiConfig.model,
+            messages: messages,
+            stream: true
+        })
+    });
+    
+    if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || `HTTP error ${res.status}`);
+    }
+    
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let fullText = '';
+    
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            let lines = buffer.split('\n');
+            buffer = lines.pop(); // save trailing line fragment
+            
+            for (const line of lines) {
+                const cleanLine = line.trim();
+                if (!cleanLine) continue;
+                if (cleanLine === 'data: [DONE]') continue;
+                if (cleanLine.startsWith('data: ')) {
+                    try {
+                        const parsed = JSON.parse(cleanLine.substring(6));
+                        const content = parsed.choices?.[0]?.delta?.content || '';
+                        if (content) {
+                            fullText += content;
+                            onChunk(fullText);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse SSE JSON chunk:", e, cleanLine);
+                    }
+                }
+            }
+        }
+        
+        // Process any leftover buffer
+        if (buffer) {
+            const cleanLine = buffer.trim();
+            if (cleanLine.startsWith('data: ') && cleanLine !== 'data: [DONE]') {
+                try {
+                    const parsed = JSON.parse(cleanLine.substring(6));
+                    const content = parsed.choices?.[0]?.delta?.content || '';
+                    if (content) {
+                        fullText += content;
+                        onChunk(fullText);
+                    }
+                } catch (e) {
+                    console.error("Failed to parse trailing chunk:", e);
+                }
+            }
+        }
+        
+        if (onDone) {
+            onDone(fullText);
+        }
+        return fullText;
+    } catch (e) {
+        reader.cancel();
+        throw e;
+    }
+}
+
 // AI Copilot Code generation inside cell
 async function runCellAiAssist(id, prompt, buttonElement) {
     const cell = cells.find(c => c.id === id);
@@ -736,6 +896,18 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     const originalText = buttonElement.innerText;
     buttonElement.innerText = "生成中...";
     buttonElement.disabled = true;
+
+    // Initialize the suggestion structure
+    cell.aiSuggestion = {
+        code: '',
+        prompt: prompt,
+        isGenerating: true
+    };
+    
+    renderCells();
+
+    const previewContainer = document.getElementById(`suggestion_preview_${cell.id}`);
+    const codeElement = previewContainer ? previewContainer.querySelector('pre code') : null;
 
     // Build context
     const messages = [
@@ -752,11 +924,8 @@ async function runCellAiAssist(id, prompt, buttonElement) {
         }
     ];
 
-    try {
-        const reply = await callLlmProxy(messages);
-        
-        // Clean reply in case model still added markdown formatting
-        let cleanCode = reply;
+    const cleanLlmCode = (rawText) => {
+        let cleanCode = rawText;
         if (cleanCode.startsWith('```python')) {
             cleanCode = cleanCode.substring(9);
         } else if (cleanCode.startsWith('```')) {
@@ -765,18 +934,51 @@ async function runCellAiAssist(id, prompt, buttonElement) {
         if (cleanCode.endsWith('```')) {
             cleanCode = cleanCode.substring(0, cleanCode.length - 3);
         }
-        cleanCode = cleanCode.trim();
+        return cleanCode.trim();
+    };
 
-        cell.content = cleanCode;
+    try {
+        await callLlmProxyStream(
+            messages,
+            (chunkText) => {
+                const cleaned = cleanLlmCode(chunkText);
+                cell.aiSuggestion.code = cleaned;
+                if (codeElement) {
+                    codeElement.innerText = cleaned;
+                }
+            }
+        );
+        
+        cell.aiSuggestion.isGenerating = false;
         renderCells();
         saveNotebookToLocalStorage();
         showFloatingNotification('AI 代码生成完毕！');
     } catch (e) {
-        console.error(e);
-        alert("AI 代码生成失败: " + e.message + "\n请检查 [设置] 中的 API 端点及 Token 配置是否正确。");
+        console.warn("AI Copilot streaming failed, falling back to non-streaming:", e);
+        try {
+            const reply = await callLlmProxy(messages);
+            const cleaned = cleanLlmCode(reply);
+            cell.aiSuggestion.code = cleaned;
+            cell.aiSuggestion.isGenerating = false;
+            renderCells();
+            saveNotebookToLocalStorage();
+            showFloatingNotification('AI 代码生成完毕！');
+        } catch (fallbackErr) {
+            console.error(fallbackErr);
+            alert("AI 代码生成失败: " + fallbackErr.message + "\n请检查 [设置] 中的 API 端点及 Token 配置是否正确。");
+            delete cell.aiSuggestion;
+            renderCells();
+        }
     } finally {
         buttonElement.innerText = originalText;
         buttonElement.disabled = false;
+        
+        // Clear the input field
+        const containerEl = document.getElementById(cell.id);
+        if (containerEl) {
+            const inputField = containerEl.querySelector('.ai-assist-input');
+            if (inputField) inputField.value = '';
+        }
     }
 }
 
@@ -792,7 +994,7 @@ async function runCellDebug(id, buttonElement) {
     const messages = [
         {
             role: 'system',
-            content: `你是一个部署在天数智芯(Iluvatar Corex) AI 开发环境下的代码调试专家。
+            content: `你是一个部署在天数智芯(Iluvatar Corex) AI 开发 environment 下的代码调试专家。
 针对用户运行失败的代码以及异常 Traceback (Stderr)，分析其发生错误的原因，并提供修改后的正确完整代码。
 格式：请先用一段简短、精确的中文说明出错原因（少于 150 字），然后输出一个修改后的完整代码块，代码块请用 \`\`\`python ... \`\`\` 包裹起来。`
         },
@@ -802,21 +1004,57 @@ async function runCellDebug(id, buttonElement) {
         }
     ];
 
-    try {
-        const reply = await callLlmProxy(messages);
-        
-        // Open Right Sidebar Chat and dump the debugging result there
-        const aiSidebar = document.getElementById('aiSidebar');
-        const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
-        aiSidebar.classList.remove('collapsed');
-        openSidebarBtn.classList.add('hidden');
+    // Open Right Sidebar Chat
+    const aiSidebar = document.getElementById('aiSidebar');
+    const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
+    aiSidebar.classList.remove('collapsed');
+    openSidebarBtn.classList.add('hidden');
 
-        // Append chat messages
-        appendChatMessage('user', `调试单元格代码 (错误诊断)`);
-        appendChatMessage('assistant', reply);
+    // Append user query message
+    appendChatMessage('user', `调试单元格代码 (错误诊断)`);
+
+    // Add thinking loader in chat
+    const loaderId = 'loader_' + Math.random().toString(36).substr(2, 9);
+    const chatHistory = document.getElementById('chatHistory');
+    
+    const loaderMsg = document.createElement('div');
+    loaderMsg.className = 'chat-message assistant';
+    loaderMsg.id = loaderId;
+    loaderMsg.innerHTML = `
+        <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="chat-bubble">
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
+        </div>
+    `;
+    chatHistory.appendChild(loaderMsg);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+
+    let streamMessage = null;
+
+    try {
+        await callLlmProxyStream(
+            messages,
+            (chunkText) => {
+                if (!streamMessage) {
+                    const loader = document.getElementById(loaderId);
+                    if (loader) loader.remove();
+                    streamMessage = appendStreamingChatMessage('assistant');
+                }
+                streamMessage.update(chunkText);
+            }
+        );
     } catch (e) {
-        console.error(e);
-        alert("AI 诊断出错: " + e.message + "\n请检查 API 配置。");
+        console.warn("Streaming debug failed, falling back to non-streaming:", e);
+        try {
+            const reply = await callLlmProxy(messages);
+            const loader = document.getElementById(loaderId);
+            if (loader) loader.remove();
+            appendChatMessage('assistant', reply);
+        } catch (fallbackErr) {
+            const loader = document.getElementById(loaderId);
+            if (loader) loader.remove();
+            appendChatMessage('assistant', `⚠️ 诊断出错: ${fallbackErr.message}\n请检查 API 配置。`);
+        }
     } finally {
         buttonElement.innerHTML = originalText;
         buttonElement.disabled = false;
@@ -875,15 +1113,32 @@ async function sendChatMessage() {
     chatHistory.appendChild(loaderMsg);
     chatHistory.scrollTop = chatHistory.scrollHeight;
 
+    let streamMessage = null;
+
     try {
-        const reply = await callLlmProxy(messages);
-        
-        // Remove loader and insert actual response
-        document.getElementById(loaderId).remove();
-        appendChatMessage('assistant', reply);
-    } catch(e) {
-        document.getElementById(loaderId).remove();
-        appendChatMessage('assistant', `⚠️ 交互出错：${e.message}\n请检查您的网络以及在 [设置] 中检查您的 API Endpoint 或 Access Token。`);
+        await callLlmProxyStream(
+            messages,
+            (chunkText) => {
+                if (!streamMessage) {
+                    const loader = document.getElementById(loaderId);
+                    if (loader) loader.remove();
+                    streamMessage = appendStreamingChatMessage('assistant');
+                }
+                streamMessage.update(chunkText);
+            }
+        );
+    } catch (e) {
+        console.warn("Streaming chat failed, falling back to non-streaming:", e);
+        try {
+            const reply = await callLlmProxy(messages);
+            const loader = document.getElementById(loaderId);
+            if (loader) loader.remove();
+            appendChatMessage('assistant', reply);
+        } catch (fallbackErr) {
+            const loader = document.getElementById(loaderId);
+            if (loader) loader.remove();
+            appendChatMessage('assistant', `⚠️ 交互出错：${fallbackErr.message}\n请检查您的网络以及在 [设置] 中检查您的 API Endpoint 或 Access Token。`);
+        }
     }
 }
 
@@ -952,6 +1207,84 @@ function appendChatMessage(sender, text) {
 
     chatHistory.appendChild(msg);
     chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+function appendStreamingChatMessage(sender) {
+    const chatHistory = document.getElementById('chatHistory');
+    const msg = document.createElement('div');
+    msg.className = `chat-message ${sender}`;
+    
+    const avatarIcon = sender === 'user' ? 'fa-user' : 'fa-robot';
+    
+    msg.innerHTML = `
+        <div class="chat-avatar"><i class="fa-solid ${avatarIcon}"></i></div>
+        <div class="chat-bubble">
+            <span class="streaming-text"></span>
+        </div>
+    `;
+    
+    chatHistory.appendChild(msg);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+    
+    return {
+        update: (text) => {
+            const bubble = msg.querySelector('.chat-bubble');
+            bubble.innerHTML = parseMarkdown(text);
+            
+            // Re-apply actions overlay for code blocks
+            bubble.querySelectorAll('pre').forEach(pre => {
+                if (pre.parentNode && pre.parentNode.style.position === 'relative') {
+                    return; // Already wrapped
+                }
+                const container = document.createElement('div');
+                container.style.position = 'relative';
+                pre.parentNode.insertBefore(container, pre);
+                container.appendChild(pre);
+        
+                const actions = document.createElement('div');
+                actions.style.position = 'absolute';
+                actions.style.top = '4px';
+                actions.style.right = '4px';
+                actions.style.display = 'flex';
+                actions.style.gap = '4px';
+        
+                const cpy = document.createElement('button');
+                cpy.className = 'tb-btn';
+                cpy.innerHTML = '<i class="fa-solid fa-copy"></i>';
+                cpy.title = '复制';
+                cpy.addEventListener('click', () => {
+                    navigator.clipboard.writeText(pre.innerText);
+                    showFloatingNotification('代码已复制！');
+                });
+        
+                const insert = document.createElement('button');
+                insert.className = 'tb-btn';
+                insert.innerHTML = '<i class="fa-solid fa-plus"></i> 插入';
+                insert.title = '作为新单元格插入 Notebook';
+                insert.addEventListener('click', () => {
+                    const newCell = {
+                        id: 'cell_' + Math.random().toString(36).substr(2, 9),
+                        type: 'code',
+                        content: pre.innerText,
+                        output: null,
+                        elapsedTime: null,
+                        success: true,
+                        isExecuting: false
+                    };
+                    cells.push(newCell);
+                    renderCells();
+                    saveNotebookToLocalStorage();
+                    showFloatingNotification('已将代码插入笔记本！');
+                });
+        
+                actions.appendChild(cpy);
+                actions.appendChild(insert);
+                container.appendChild(actions);
+            });
+            
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+    };
 }
 
 // Simple Markdown Parser (Zero Dependencies)

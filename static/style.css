@@ -1280,3 +1280,93 @@ body {
         padding: 4px 10px;
     }
 }
+
+/* AI Suggestion Preview Box */
+.ai-suggestion-preview {
+    margin-top: 12px;
+    background: rgba(192, 132, 252, 0.04);
+    border: 1px solid rgba(192, 132, 252, 0.25);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.suggestion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent-purple);
+}
+
+.suggestion-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.suggestion-btn {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.suggestion-btn:hover {
+    background: var(--bg-surface-active);
+    border-color: var(--border-color-active);
+}
+
+.suggestion-btn.accept-overwrite {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--success);
+}
+
+.suggestion-btn.accept-overwrite:hover {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: var(--success);
+}
+
+.suggestion-btn.accept-insert {
+    background: rgba(79, 172, 254, 0.1);
+    border-color: rgba(79, 172, 254, 0.3);
+    color: var(--accent-secondary);
+}
+
+.suggestion-btn.accept-insert:hover {
+    background: rgba(79, 172, 254, 0.2);
+    border-color: var(--accent-secondary);
+}
+
+.suggestion-btn.discard {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--error);
+}
+
+.suggestion-btn.discard:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: var(--error);
+}
+
+.ai-suggestion-preview pre {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 10px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: var(--font-code);
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
