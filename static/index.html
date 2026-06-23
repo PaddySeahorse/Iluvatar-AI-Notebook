@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iluvatar AI Notebook | 天数智芯智能笔记本</title>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter and Fira Code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body class="dark-theme">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+        <div class="nav-left">
+            <div class="logo">
+                <i class="fa-solid fa-microchip logo-icon"></i>
+                <span class="logo-text">Iluvatar <span class="accent-text">AI Notebook</span></span>
+            </div>
+            <div class="kernel-status">
+                <span class="status-dot online"></span>
+                <span class="status-text">Python 3 (天数智芯 BI-150)</span>
+            </div>
+        </div>
+        
+        <!-- Live GPU Stats Header -->
+        <div class="gpu-mini-dashboard" id="gpuDashboard" title="点击查看国产算力详情">
+            <div class="stat-item">
+                <span class="stat-label">GPU 使用率</span>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="gpuUtilBar" style="width: 2%"></div>
+                </div>
+                <span class="stat-value" id="gpuUtilVal">2.0%</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">显存 (VRAM)</span>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="gpuVramBar" style="width: 10.7%"></div>
+                </div>
+                <span class="stat-value" id="gpuVramVal">3520MB / 32GB</span>
+            </div>
+            <div class="stat-item hide-mobile">
+                <span class="stat-label">功耗</span>
+                <span class="stat-value" id="gpuPowerVal">42.0 W</span>
+            </div>
+            <div class="stat-item hide-mobile">
+                <span class="stat-label">温度</span>
+                <span class="stat-value" id="gpuTempVal">45.0°C</span>
+            </div>
+        </div>
+
+        <div class="nav-right">
+            <button id="themeToggleBtn" class="nav-btn" title="切换主题">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+            <button id="settingsBtn" class="nav-btn accent" title="云端 LLM API 配置">
+                <i class="fa-solid fa-gear"></i> 设置
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <main class="workspace">
+        <!-- Notebook Left Panel (Cells List) -->
+        <section class="notebook-container">
+            <div class="notebook-header">
+                <div class="notebook-title-section">
+                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb">
+                    <span class="notebook-meta">天数智芯国产算力加速中</span>
+                </div>
+                <div class="notebook-actions">
+                    <button id="addCodeBtn" class="action-btn"><i class="fa-solid fa-plus"></i> 代码单元</button>
+                    <button id="addMarkdownBtn" class="action-btn"><i class="fa-solid fa-paragraph"></i> 文本单元</button>
+                    <button id="clearAllOutputsBtn" class="action-btn secondary" title="清除所有输出"><i class="fa-solid fa-eraser"></i> 清除输出</button>
+                </div>
+            </div>
+
+            <!-- Scrollable list of cells -->
+            <div class="cells-list" id="cellsList">
+                <!-- Dynamically populated via JS -->
+            </div>
+            
+            <!-- Bottom menu to add cells -->
+            <div class="bottom-add-bar">
+                <div class="add-bar-line"></div>
+                <div class="add-buttons">
+                    <button id="addCodeBottomBtn" class="round-add-btn"><i class="fa-solid fa-plus"></i> 代码</button>
+                    <button id="addMarkdownBottomBtn" class="round-add-btn"><i class="fa-solid fa-paragraph"></i> 文本</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Side Panel: AI Assistant Chat -->
+        <aside class="ai-sidebar" id="aiSidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">
+                    <i class="fa-solid fa-wand-magic-sparkles ai-sparkle"></i>
+                    <span>AI Copilot 助手</span>
+                </div>
+                <button id="toggleSidebarBtn" class="close-sidebar-btn" title="折叠面板">
+                    <i class="fa-solid fa-angles-right"></i>
+                </button>
+            </div>
+            
+            <div class="sidebar-chat-history" id="chatHistory">
+                <!-- Welcome Message -->
+                <div class="chat-message assistant">
+                    <div class="chat-avatar">
+                        <i class="fa-solid fa-robot"></i>
+                    </div>
+                    <div class="chat-bubble">
+                        <p>您好！我是您的 **Iluvatar AI 助手**。我可以帮助您编写、优化、以及调试适配国产算力（天数智芯）的深度学习代码。</p>
+                        <p>我能帮助您做些什么？</p>
+                        <div class="quick-prompts">
+                            <button class="quick-prompt-pill" data-prompt="如何利用天数智芯加速 PyTorch 训练模型？">💡 国产算力训练加速</button>
+                            <button class="quick-prompt-pill" data-prompt="写一个简单的三层全连接神经网络，并在 GPU 上运行。">🤖 构建简易神经网络</button>
+                            <button class="quick-prompt-pill" data-prompt="检查我笔记本里所有单元格的代码是否有 bug 或性能隐患。">🔍 诊断笔记本代码</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-input-area">
+                <div class="sidebar-checkbox-option">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="includeContextCheckbox" checked>
+                        <span class="checkmark"></span>
+                        携带当前 Notebook 所有代码作为上下文
+                    </label>
+                </div>
+                <div class="chat-input-wrapper">
+                    <textarea id="chatInput" placeholder="输入您想问 AI 的问题..." rows="2"></textarea>
+                    <button id="sendChatBtn" class="send-btn" title="发送">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Toggle Button for Collapsed Sidebar -->
+        <button id="openSidebarFloatingBtn" class="floating-sidebar-btn hidden" title="展开 AI 助手">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+        </button>
+    </main>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-gears"></i> 云端 LLM API 配置</h2>
+                <button id="closeSettingsBtn" class="close-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="settings-desc">配置自定义的 AI 推理端点。默认采用 OpenI 平台的 DeepSeek 模型加速提供服务。</p>
+                
+                <div class="form-group">
+                    <label for="apiUrlInput">API URL 端点</label>
+                    <input type="text" id="apiUrlInput" placeholder="https://token.openi.org.cn/v1/chat/completions">
+                    <small>OpenAI 兼容的 completions 路径</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="apiTokenInput">API Access Token (Bearer Token)</label>
+                    <div class="password-input-wrapper">
+                        <input type="password" id="apiTokenInput" placeholder="sk-...">
+                        <button id="toggleTokenVisibility" type="button" class="eye-btn">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>用于鉴权的 Token 秘钥</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="modelInput">模型名称 (Model Name)</label>
+                    <input type="text" id="modelInput" placeholder="dsv4">
+                    <small>请求中携带的 model 字段，例如：dsv4</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="resetSettingsBtn" class="modal-btn secondary">重置默认</button>
+                <button id="saveSettingsBtn" class="modal-btn primary">保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPU Dashboard Details Modal -->
+    <div class="modal-overlay" id="gpuModal">
+        <div class="modal-card gpu-card">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-microchip"></i> 国产算力详情 - 天数智芯 BI-150</h2>
+                <button id="closeGpuBtn" class="close-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gpu-grid">
+                    <div class="gpu-stat-box">
+                        <div class="gpu-stat-title">芯片架构</div>
+                        <div class="gpu-stat-large-val">BI-150 / MR-100</div>
+                        <div class="gpu-stat-sub">天数智芯 (Iluvatar Corex)</div>
+                    </div>
+                    <div class="gpu-stat-box">
+                        <div class="gpu-stat-title">GPU 核心温度</div>
+                        <div class="gpu-stat-large-val" id="gpuModalTemp">45.0°C</div>
+                        <div class="gpu-stat-sub">最大限制温度: 85.0°C</div>
+                    </div>
+                    <div class="gpu-stat-box">
+                        <div class="gpu-stat-title">即时功耗 (TDP)</div>
+                        <div class="gpu-stat-large-val" id="gpuModalPower">42.0 W</div>
+                        <div class="gpu-stat-sub">最大设计功耗: 250 W</div>
+                    </div>
+                    <div class="gpu-stat-box">
+                        <div class="gpu-stat-title">当前状态</div>
+                        <div class="gpu-stat-large-val color-accent" id="gpuModalStatus">Idle</div>
+                        <div class="gpu-stat-sub">核心运行时状态</div>
+                    </div>
+                </div>
+
+                <div class="gpu-details-section">
+                    <h3 class="section-title">计算显存配置 (VRAM)</h3>
+                    <div class="gpu-vram-detail-wrapper">
+                        <div class="gpu-vram-text">
+                            <span id="gpuModalVramUsed">3520 MB</span> / <span>32768 MB (32GB HBM2)</span>
+                        </div>
+                        <div class="vram-bar-full">
+                            <div class="vram-bar-used" id="gpuModalVramBar" style="width: 10.7%"></div>
+                        </div>
+                        <div class="vram-subtext">显存带宽: 1.2 TB/s | 显存类型: HBM2 极速显存</div>
+                    </div>
+                </div>
+
+                <div class="gpu-details-section">
+                    <h3 class="section-title">硬件参数规格</h3>
+                    <table class="specs-table">
+                        <tr>
+                            <td>浮点算力 (FP32)</td>
+                            <td>37 TFLOPS</td>
+                            <td>混合算力 (FP16/BF16)</td>
+                            <td>147 TFLOPS</td>
+                        </tr>
+                        <tr>
+                            <td>核心频率</td>
+                            <td>1350 MHz</td>
+                            <td>制造工艺</td>
+                            <td>7nm FinFET</td>
+                        </tr>
+                        <tr>
+                            <td>PCIe 接口协议</td>
+                            <td>Gen4 x16</td>
+                            <td>驱动版本</td>
+                            <td>Iluvatar SDK v2.8.0</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="closeGpuBottomBtn" class="modal-btn primary">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS Logic -->
+    <script src="static/app.js"></script>
+</body>
+</html>
