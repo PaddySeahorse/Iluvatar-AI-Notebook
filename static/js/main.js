@@ -20,13 +20,17 @@ import {
     fetchGpuStatus,
     runCellOnBackend,
     callLlmProxy,
-    callLlmProxyStream
+    callLlmProxyStream,
+    lintCellOnBackend,
+    fetchKernelVariables
 } from './api.js';
 
 import {
     renderCells,
     parseMarkdown,
-    showFloatingNotification
+    showFloatingNotification,
+    applyLintDiagnostics,
+    activeEditors
 } from './renderer.js';
 
 // Rerender helper to keep view in sync with state changes
@@ -76,6 +80,7 @@ const rendererCallbacks = {
             saveNotebookToLocalStorage();
         }
     },
+    onCodeChangeDebounced: (id, code) => debounceLintCell(id, code),
     onAiAssist: (id, prompt, btn) => runCellAiAssist(id, prompt, btn),
     onDebug: (id, btn) => runCellDebug(id, btn),
     onExplainCell: (id) => runCellExplain(id),
@@ -178,8 +183,75 @@ plt.show()`,
     saveNotebookToLocalStorage();
 }
 
+const lintTimers = new Map();
+function debounceLintCell(id, code) {
+    if (lintTimers.has(id)) {
+        clearTimeout(lintTimers.get(id));
+    }
+    const timer = setTimeout(async () => {
+        lintTimers.delete(id);
+        try {
+            const diagnostics = await lintCellOnBackend(code);
+            applyLintDiagnostics(id, diagnostics);
+        } catch (e) {
+            console.error("Lint error:", e);
+        }
+    }, 600);
+    lintTimers.set(id, timer);
+}
+
+async function updateVariablesInspector() {
+    try {
+        const variables = await fetchKernelVariables();
+        const listEl = document.getElementById('variablesList');
+        if (!listEl) return;
+        
+        if (variables.length === 0) {
+            listEl.innerHTML = `
+                <tr>
+                    <td colspan="4" class="no-vars-msg">暂无活动变量</td>
+                </tr>
+            `;
+            return;
+        }
+        
+        listEl.innerHTML = '';
+        variables.forEach(v => {
+            const tr = document.createElement('tr');
+            
+            const nameTd = document.createElement('td');
+            nameTd.className = 'var-name';
+            nameTd.innerText = v.name;
+            tr.appendChild(nameTd);
+            
+            const typeTd = document.createElement('td');
+            typeTd.className = 'var-type';
+            typeTd.innerText = v.type;
+            tr.appendChild(typeTd);
+            
+            const shapeTd = document.createElement('td');
+            shapeTd.className = 'var-shape';
+            shapeTd.innerText = v.shape || '-';
+            tr.appendChild(shapeTd);
+            
+            const reprTd = document.createElement('td');
+            reprTd.className = 'var-repr';
+            reprTd.innerText = v.repr;
+            tr.appendChild(reprTd);
+            
+            listEl.appendChild(tr);
+        });
+    } catch (e) {
+        console.error("Failed to update variables inspector:", e);
+    }
+}
+
 // Bind Global UI Elements
 function setupEventListeners() {
+    const refreshVarsBtn = document.getElementById('refreshVarsBtn');
+    if (refreshVarsBtn) {
+        refreshVarsBtn.addEventListener('click', updateVariablesInspector);
+    }
     // Notebook Title Update
     document.getElementById('notebookTitle').addEventListener('blur', saveNotebookToLocalStorage);
 
@@ -260,11 +332,18 @@ function setupEventListeners() {
     document.getElementById('themeToggleBtn').addEventListener('click', () => {
         document.body.classList.toggle('light-theme');
         const icon = document.querySelector('#themeToggleBtn i');
-        if (document.body.classList.contains('light-theme')) {
+        const isDark = !document.body.classList.contains('light-theme');
+        if (isDark) {
             icon.className = 'fa-solid fa-sun';
         } else {
             icon.className = 'fa-solid fa-moon';
         }
+        
+        // Update CodeMirror editor themes dynamically
+        const cmTheme = isDark ? 'dracula' : 'neo';
+        activeEditors.forEach(editor => {
+            editor.setOption('theme', cmTheme);
+        });
     });
 
     // Settings Modal
@@ -326,23 +405,32 @@ function setupEventListeners() {
     // Sidebar Tabs navigation
     const aiAssistantTabBtn = document.getElementById('aiAssistantTabBtn');
     const execHistoryTabBtn = document.getElementById('execHistoryTabBtn');
+    const varInspectorTabBtn = document.getElementById('varInspectorTabBtn');
     const aiAssistantTabContent = document.getElementById('aiAssistantTabContent');
     const execHistoryTabContent = document.getElementById('execHistoryTabContent');
+    const varInspectorTabContent = document.getElementById('varInspectorTabContent');
 
-    if (aiAssistantTabBtn && execHistoryTabBtn) {
+    if (aiAssistantTabBtn && execHistoryTabBtn && varInspectorTabBtn) {
+        const switchTab = (activeBtn, activeContent) => {
+            [aiAssistantTabBtn, execHistoryTabBtn, varInspectorTabBtn].forEach(btn => btn.classList.remove('active'));
+            [aiAssistantTabContent, execHistoryTabContent, varInspectorTabContent].forEach(content => content.classList.add('hidden'));
+            
+            activeBtn.classList.add('active');
+            activeContent.classList.remove('hidden');
+        };
+
         aiAssistantTabBtn.addEventListener('click', () => {
-            aiAssistantTabBtn.classList.add('active');
-            execHistoryTabBtn.classList.remove('active');
-            aiAssistantTabContent.classList.remove('hidden');
-            execHistoryTabContent.classList.add('hidden');
+            switchTab(aiAssistantTabBtn, aiAssistantTabContent);
         });
 
         execHistoryTabBtn.addEventListener('click', () => {
-            execHistoryTabBtn.classList.add('active');
-            aiAssistantTabBtn.classList.remove('active');
-            execHistoryTabContent.classList.remove('hidden');
-            aiAssistantTabContent.classList.add('hidden');
+            switchTab(execHistoryTabBtn, execHistoryTabContent);
             renderHistoryList();
+        });
+
+        varInspectorTabBtn.addEventListener('click', () => {
+            switchTab(varInspectorTabBtn, varInspectorTabContent);
+            updateVariablesInspector();
         });
     }
 
@@ -544,6 +632,7 @@ function runCell(id) {
         setKernelStatus('online', 'Python 3 (天数智芯 BI-150)');
         triggerRender();
         saveNotebookToLocalStorage();
+        updateVariablesInspector();
     });
 }
 
@@ -1112,14 +1201,17 @@ async function runCellExplain(id) {
 
     const aiAssistantTabBtn = document.getElementById('aiAssistantTabBtn');
     const execHistoryTabBtn = document.getElementById('execHistoryTabBtn');
+    const varInspectorTabBtn = document.getElementById('varInspectorTabBtn');
     const aiAssistantTabContent = document.getElementById('aiAssistantTabContent');
     const execHistoryTabContent = document.getElementById('execHistoryTabContent');
+    const varInspectorTabContent = document.getElementById('varInspectorTabContent');
 
-    if (aiAssistantTabBtn && execHistoryTabBtn) {
+    if (aiAssistantTabBtn && execHistoryTabBtn && varInspectorTabBtn) {
+        [aiAssistantTabBtn, execHistoryTabBtn, varInspectorTabBtn].forEach(btn => btn.classList.remove('active'));
+        [aiAssistantTabContent, execHistoryTabContent, varInspectorTabContent].forEach(content => content.classList.add('hidden'));
+        
         aiAssistantTabBtn.classList.add('active');
-        execHistoryTabBtn.classList.remove('active');
         aiAssistantTabContent.classList.remove('hidden');
-        execHistoryTabContent.classList.add('hidden');
     }
 
     // Append explanation query

@@ -1,5 +1,41 @@
 // View rendering and parsing helpers for Iluvatar AI Notebook
 
+export const activeEditors = new Map();
+
+export function applyLintDiagnostics(cellId, diagnostics) {
+    const editor = activeEditors.get(cellId);
+    if (!editor) return;
+    
+    // Clear previous marks
+    const currentMarks = editor.state.lintMarks || [];
+    currentMarks.forEach(m => m.clear());
+    const newMarks = [];
+    
+    const errors = diagnostics.errors || [];
+    const warnings = diagnostics.warnings || [];
+    
+    const applyMark = (item, isError) => {
+        const line = Math.max(0, item.line - 1);
+        const col = Math.max(0, item.col || 0);
+        const lineContent = editor.getLine(line) || '';
+        const endCol = Math.max(col + 1, lineContent.length);
+        
+        const markClass = isError ? 'syntax-error-mark' : 'syntax-warning-mark';
+        
+        const mark = editor.markText(
+            { line: line, ch: col },
+            { line: line, ch: endCol },
+            { className: markClass, title: item.message }
+        );
+        newMarks.push(mark);
+    };
+    
+    errors.forEach(e => applyMark(e, true));
+    warnings.forEach(w => applyMark(w, false));
+    
+    editor.state.lintMarks = newMarks;
+}
+
 export function autoResizeTextarea(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = (textarea.scrollHeight) + 'px';
@@ -204,19 +240,48 @@ function renderCodeEditor(cell, callbacks) {
     const inputArea = document.createElement('div');
     inputArea.className = 'cell-input-area';
 
-    const editor = document.createElement('textarea');
-    editor.className = 'cell-editor';
-    editor.value = cell.content;
-    editor.placeholder = '在此输入 Python 代码...';
-    editor.addEventListener('input', (e) => {
-        callbacks.onContentChange(cell.id, e.target.value);
-        autoResizeTextarea(editor);
-    });
-    editor.addEventListener('focus', () => callbacks.onActivateCell(cell.id));
-    inputArea.appendChild(editor);
+    const editorContainer = document.createElement('div');
+    editorContainer.className = 'cell-editor-container';
+    inputArea.appendChild(editorContainer);
     
-    // Auto resize on layout paint
-    setTimeout(() => autoResizeTextarea(editor), 10);
+    setTimeout(() => {
+        const isDark = document.body.classList.contains('dark-theme');
+        const editorTheme = isDark ? 'dracula' : 'neo';
+        
+        const editor = CodeMirror(editorContainer, {
+            value: cell.content,
+            mode: 'python',
+            theme: editorTheme,
+            lineNumbers: true,
+            indentUnit: 4,
+            viewportMargin: Infinity,
+            extraKeys: {
+                "Tab": function(cm) {
+                    var spaces = Array(cm.getOption("indentUnit") + 1).join(" ");
+                    cm.replaceSelection(spaces);
+                }
+            }
+        });
+        
+        editor.state.lintMarks = [];
+        activeEditors.set(cell.id, editor);
+        
+        editor.on('change', (cm) => {
+            const val = cm.getValue();
+            callbacks.onContentChange(cell.id, val);
+            if (callbacks.onCodeChangeDebounced) {
+                callbacks.onCodeChangeDebounced(cell.id, val);
+            }
+        });
+        
+        editor.on('focus', () => {
+            callbacks.onActivateCell(cell.id);
+        });
+        
+        if (cell.content.trim() && callbacks.onCodeChangeDebounced) {
+            callbacks.onCodeChangeDebounced(cell.id, cell.content);
+        }
+    }, 10);
     
     // AI Copilot Input Bar
     const copilotBar = document.createElement('div');
@@ -341,6 +406,14 @@ function createHoverAddBar(index, callbacks) {
 export function renderCells(cells, activeCellId, callbacks) {
     const container = document.getElementById('cellsList');
     if (!container) return;
+    
+    const cellIds = new Set(cells.map(c => c.id));
+    for (const key of activeEditors.keys()) {
+        if (!cellIds.has(key)) {
+            activeEditors.delete(key);
+        }
+    }
+    
     container.innerHTML = '';
 
     cells.forEach((cell, index) => {

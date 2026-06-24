@@ -11,6 +11,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="static/style.css">
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/neo.min.css">
 </head>
 <body class="dark-theme">
     <!-- Top Navigation Bar -->
@@ -112,6 +116,7 @@
             <div class="sidebar-tabs">
                 <button id="aiAssistantTabBtn" class="tab-btn active"><i class="fa-solid fa-robot"></i> AI 助手</button>
                 <button id="execHistoryTabBtn" class="tab-btn"><i class="fa-solid fa-clock-rotate-left"></i> 执行历史</button>
+                <button id="varInspectorTabBtn" class="tab-btn"><i class="fa-solid fa-square-root-variable"></i> 变量空间</button>
             </div>
             
             <!-- Tab Contents -->
@@ -158,6 +163,30 @@
                 </div>
                 <div class="sidebar-history-list" id="historyList">
                     <!-- Dynamically populated execution history items -->
+                </div>
+            </div>
+
+            <div id="varInspectorTabContent" class="tab-content hidden">
+                <div class="sidebar-history-header">
+                    <span class="history-count">内核活动变量</span>
+                    <button id="refreshVarsBtn" class="clear-history-btn" title="手动刷新"><i class="fa-solid fa-arrows-rotate"></i> 刷新</button>
+                </div>
+                <div class="variables-table-container">
+                    <table class="variables-table">
+                        <thead>
+                            <tr>
+                                <th>变量名</th>
+                                <th>类型</th>
+                                <th>大小/形状</th>
+                                <th>值预览</th>
+                            </tr>
+                        </thead>
+                        <tbody id="variablesList">
+                            <tr>
+                                <td colspan="4" class="no-vars-msg">暂无活动变量</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </aside>
@@ -281,6 +310,11 @@
             </div>
         </div>
     </div>
+
+    <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/markdown/markdown.min.js"></script>
 
     <!-- JS Logic -->
     <script type="module" src="static/js/main.js"></script>
