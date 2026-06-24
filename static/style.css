@@ -1581,3 +1581,147 @@ body {
     background-color: var(--bg-surface-elevated);
 }
 
+/* CodeMirror Premium Integration Overrides */
+.CodeMirror {
+    height: auto;
+    min-height: 80px;
+    font-family: var(--font-code);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    background: transparent !important;
+    color: var(--text-primary) !important;
+    border-radius: 6px;
+    padding: 4px 0;
+    transition: background-color 0.2s ease;
+}
+
+/* Theme specifics */
+.dark-theme .CodeMirror {
+    color: #f8f8f2 !important;
+}
+.light-theme .CodeMirror {
+    color: #2e3440 !important;
+}
+
+.CodeMirror-scroll {
+    max-height: 500px;
+    min-height: 80px;
+}
+
+.CodeMirror-gutters {
+    background-color: transparent !important;
+    border-right: 1px solid transparent !important;
+}
+
+/* Wavy underline error marker class */
+.syntax-error-mark {
+    text-decoration: underline wavy #ef4444 2px;
+    background-color: rgba(239, 68, 68, 0.05);
+}
+
+.syntax-warning-mark {
+    text-decoration: underline wavy #eab308 2px;
+    background-color: rgba(234, 179, 8, 0.05);
+}
+
+/* Custom error tooltip on hover */
+.lint-error-tooltip {
+    position: absolute;
+    z-index: 10000;
+    background: #1e1e2e;
+    color: #f38ba8;
+    border: 1px solid #f38ba8;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    max-width: 250px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    font-family: var(--font-code);
+    line-height: 1.4;
+}
+
+.lint-warning-tooltip {
+    position: absolute;
+    z-index: 10000;
+    background: #1e1e2e;
+    color: #f9e2af;
+    border: 1px solid #f9e2af;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    max-width: 250px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    font-family: var(--font-code);
+    line-height: 1.4;
+}
+
+/* Variables Inspector UI Styles */
+.variables-table-container {
+    padding: 12px 15px;
+    overflow-x: auto;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.variables-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+    text-align: left;
+}
+
+.variables-table th, .variables-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.variables-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 0.65rem;
+    letter-spacing: 0.5px;
+}
+
+.variables-table tr:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+.variables-table .var-name {
+    font-family: var(--font-code);
+    font-weight: 600;
+    color: var(--accent-cyan, #00f2fe);
+}
+
+.variables-table .var-type {
+    font-family: var(--font-code);
+    color: var(--accent-purple, #b5179e);
+    font-size: 0.7rem;
+}
+
+.variables-table .var-shape {
+    font-family: var(--font-code);
+    color: var(--success, #10b981);
+    font-size: 0.7rem;
+}
+
+.variables-table .var-repr {
+    font-family: var(--font-code);
+    color: var(--text-secondary);
+    max-width: 150px;
+    word-break: break-all;
+    white-space: normal;
+}
+
+.no-vars-msg {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px 0 !important;
+    font-style: italic;
+}
+

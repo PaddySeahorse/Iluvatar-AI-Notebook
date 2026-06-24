@@ -172,3 +172,24 @@ export async function callLlmProxyStream(messages, onChunk, onDone) {
         throw e;
     }
 }
+
+// Check syntax and variable loading via AST in backend
+export async function lintCellOnBackend(code) {
+    const res = await fetch('/api/lint_cell', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ code: code })
+    });
+    if (!res.ok) throw new Error("Backend lint request failed");
+    return await res.json();
+}
+
+// Fetch active python variables in kernel
+export async function fetchKernelVariables() {
+    const res = await fetch('/api/get_variables');
+    if (!res.ok) throw new Error("Backend get_variables request failed");
+    return await res.json();
+}
+
