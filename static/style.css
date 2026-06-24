@@ -1370,3 +1370,26 @@ body {
     color: #e2e8f0;
     border: 1px solid rgba(255, 255, 255, 0.03);
 }
+
+/* Floating Notification toast styles */
+.floating-notification {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--gradient-accent);
+    color: #070913;
+    padding: 10px 24px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    box-shadow: 0 8px 30px rgba(0, 242, 254, 0.3);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 9999;
+    opacity: 0;
+}
+
+.floating-notification.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
