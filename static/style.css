@@ -1393,3 +1393,191 @@ body {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
 }
+
+/* Sidebar Tab Switching & Execution History Styles */
+.sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    background-color: rgba(0, 0, 0, 0.15);
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: var(--transition-smooth);
+    border-bottom: 2px solid transparent;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+.tab-btn.active {
+    color: var(--accent-purple);
+    border-bottom-color: var(--accent-purple);
+    background-color: rgba(192, 132, 252, 0.03);
+}
+
+.tab-content {
+    display: flex;
+    flex-direction: column;
+    height: calc(100% - 105px); /* Header + tabs height offset */
+    overflow: hidden;
+}
+
+.tab-content.hidden {
+    display: none !important;
+}
+
+#aiAssistantTabContent {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+#execHistoryTabContent {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.sidebar-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background-color: rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.history-count {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.clear-history-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: var(--transition-smooth);
+}
+
+.clear-history-btn:hover {
+    color: var(--error);
+}
+
+.sidebar-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.history-item {
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: var(--transition-smooth);
+}
+
+.history-item:hover {
+    border-color: var(--border-color-active);
+    background-color: var(--bg-surface-active);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.history-item-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.7rem;
+}
+
+.history-item-time {
+    color: var(--text-muted);
+    font-family: var(--font-code);
+}
+
+.history-item-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.history-item-badge.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.history-item-badge.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.history-item-code {
+    background: rgba(0, 0, 0, 0.25);
+    font-family: var(--font-code);
+    font-size: 0.72rem;
+    padding: 6px 8px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    overflow-x: auto;
+    max-height: 80px;
+    color: #cbd5e1;
+    border: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.history-item-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.history-action-btn {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.history-action-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-color-active);
+    background-color: var(--bg-surface-elevated);
+}
+

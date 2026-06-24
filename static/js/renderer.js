@@ -93,6 +93,19 @@ function renderCellToolbar(cell, index, cellsLength, callbacks) {
     const toolbar = document.createElement('div');
     toolbar.className = 'cell-toolbar';
     
+    // AI Explain Button (only for code cells)
+    if (cell.type === 'code') {
+        const explainBtn = document.createElement('button');
+        explainBtn.className = 'tb-btn';
+        explainBtn.innerHTML = '<i class="fa-solid fa-chalkboard-user"></i>';
+        explainBtn.title = 'AI解释代码';
+        explainBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            callbacks.onExplainCell(cell.id);
+        });
+        toolbar.appendChild(explainBtn);
+    }
+
     const moveUpBtn = document.createElement('button');
     moveUpBtn.className = 'tb-btn';
     moveUpBtn.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';

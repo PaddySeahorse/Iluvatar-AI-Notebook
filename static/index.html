@@ -72,6 +72,9 @@
                     <span class="notebook-meta">天数智芯国产算力加速中</span>
                 </div>
                 <div class="notebook-actions">
+                    <button id="importNotebookBtn" class="action-btn secondary" title="导入 .ipynb 文件"><i class="fa-solid fa-file-import"></i> 导入</button>
+                    <button id="exportNotebookBtn" class="action-btn secondary" title="导出为 .ipynb 文件"><i class="fa-solid fa-file-export"></i> 导出</button>
+                    <input type="file" id="importNotebookInput" accept=".ipynb" style="display: none;">
                     <button id="addCodeBtn" class="action-btn"><i class="fa-solid fa-plus"></i> 代码单元</button>
                     <button id="addMarkdownBtn" class="action-btn"><i class="fa-solid fa-paragraph"></i> 文本单元</button>
                     <button id="clearAllOutputsBtn" class="action-btn secondary" title="清除所有输出"><i class="fa-solid fa-eraser"></i> 清除输出</button>
@@ -93,7 +96,7 @@
             </div>
         </section>
 
-        <!-- Right Side Panel: AI Assistant Chat -->
+        <!-- Right Side Panel: AI Assistant Chat & Execution History -->
         <aside class="ai-sidebar" id="aiSidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">
@@ -104,38 +107,57 @@
                     <i class="fa-solid fa-angles-right"></i>
                 </button>
             </div>
+
+            <!-- Tabs selector for AI Copilot / Execution History -->
+            <div class="sidebar-tabs">
+                <button id="aiAssistantTabBtn" class="tab-btn active"><i class="fa-solid fa-robot"></i> AI 助手</button>
+                <button id="execHistoryTabBtn" class="tab-btn"><i class="fa-solid fa-clock-rotate-left"></i> 执行历史</button>
+            </div>
             
-            <div class="sidebar-chat-history" id="chatHistory">
-                <!-- Welcome Message -->
-                <div class="chat-message assistant">
-                    <div class="chat-avatar">
-                        <i class="fa-solid fa-robot"></i>
-                    </div>
-                    <div class="chat-bubble">
-                        <p>您好！我是您的 **Iluvatar AI 助手**。我可以帮助您编写、优化、以及调试适配国产算力（天数智芯）的深度学习代码。</p>
-                        <p>我能帮助您做些什么？</p>
-                        <div class="quick-prompts">
-                            <button class="quick-prompt-pill" data-prompt="如何利用天数智芯加速 PyTorch 训练模型？">💡 国产算力训练加速</button>
-                            <button class="quick-prompt-pill" data-prompt="写一个简单的三层全连接神经网络，并在 GPU 上运行。">🤖 构建简易神经网络</button>
-                            <button class="quick-prompt-pill" data-prompt="检查我笔记本里所有单元格的代码是否有 bug 或性能隐患。">🔍 诊断笔记本代码</button>
+            <!-- Tab Contents -->
+            <div id="aiAssistantTabContent" class="tab-content active">
+                <div class="sidebar-chat-history" id="chatHistory">
+                    <!-- Welcome Message -->
+                    <div class="chat-message assistant">
+                        <div class="chat-avatar">
+                            <i class="fa-solid fa-robot"></i>
                         </div>
+                        <div class="chat-bubble">
+                            <p>您好！我是您的 **Iluvatar AI 助手**。我可以帮助您编写、优化、以及调试适配国产算力（天数智芯）的深度学习代码。</p>
+                            <p>我能帮助您做些什么？</p>
+                            <div class="quick-prompts">
+                                <button class="quick-prompt-pill" data-prompt="如何利用天数智芯加速 PyTorch 训练模型？">💡 国产算力训练加速</button>
+                                <button class="quick-prompt-pill" data-prompt="写一个简单的三层全连接神经网络，并在 GPU 上运行。">🤖 构建简易神经网络</button>
+                                <button class="quick-prompt-pill" data-prompt="检查我笔记本里所有单元格的代码是否有 bug 或性能隐患。">🔍 诊断笔记本代码</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-input-area">
+                    <div class="sidebar-checkbox-option">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="includeContextCheckbox" checked>
+                            <span class="checkmark"></span>
+                            携带当前 Notebook 所有代码作为上下文
+                        </label>
+                    </div>
+                    <div class="chat-input-wrapper">
+                        <textarea id="chatInput" placeholder="输入您想问 AI 的问题..." rows="2"></textarea>
+                        <button id="sendChatBtn" class="send-btn" title="发送">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div class="sidebar-input-area">
-                <div class="sidebar-checkbox-option">
-                    <label class="checkbox-container">
-                        <input type="checkbox" id="includeContextCheckbox" checked>
-                        <span class="checkmark"></span>
-                        携带当前 Notebook 所有代码作为上下文
-                    </label>
+            <div id="execHistoryTabContent" class="tab-content hidden">
+                <div class="sidebar-history-header">
+                    <span class="history-count" id="historyCount">暂无历史记录</span>
+                    <button id="clearHistoryBtn" class="clear-history-btn" title="清空执行历史"><i class="fa-solid fa-trash-can"></i> 清空</button>
                 </div>
-                <div class="chat-input-wrapper">
-                    <textarea id="chatInput" placeholder="输入您想问 AI 的问题..." rows="2"></textarea>
-                    <button id="sendChatBtn" class="send-btn" title="发送">
-                        <i class="fa-solid fa-paper-plane"></i>
-                    </button>
+                <div class="sidebar-history-list" id="historyList">
+                    <!-- Dynamically populated execution history items -->
                 </div>
             </div>
         </aside>
