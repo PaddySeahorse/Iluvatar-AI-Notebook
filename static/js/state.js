@@ -65,11 +65,30 @@ export function addCell(type, index = null) {
     return newCell;
 }
 
+export const undoStack = [];
+
 // Delete a cell
 export function deleteCell(id) {
-    state.cells = state.cells.filter(c => c.id !== id);
-    if (state.activeCellId === id) state.activeCellId = null;
+    const idx = state.cells.findIndex(c => c.id === id);
+    if (idx !== -1) {
+        undoStack.push({
+            cell: JSON.parse(JSON.stringify(state.cells[idx])),
+            index: idx
+        });
+        state.cells = state.cells.filter(c => c.id !== id);
+        if (state.activeCellId === id) state.activeCellId = null;
+        saveNotebookToLocalStorage();
+    }
+}
+
+// Restore last deleted cell
+export function restoreLastDeletedCell() {
+    if (undoStack.length === 0) return null;
+    const { cell, index } = undoStack.pop();
+    state.cells.splice(index, 0, cell);
+    state.activeCellId = cell.id;
     saveNotebookToLocalStorage();
+    return cell;
 }
 
 // Move a cell up or down
@@ -97,3 +116,148 @@ export function activateCell(id) {
 export function deactivateAllCells() {
     state.activeCellId = null;
 }
+
+// Convert state to standard .ipynb JSON
+export function exportNotebookAsIpynb() {
+    const ipynbCells = state.cells.map(cell => {
+        const source = cell.content.split('\n').map((line, idx, arr) => {
+            return idx === arr.length - 1 ? line : line + '\n';
+        });
+
+        if (cell.type === 'code') {
+            const outputs = [];
+            if (cell.output) {
+                if (cell.output.stdout) {
+                    outputs.push({
+                        output_type: 'stream',
+                        name: 'stdout',
+                        text: cell.output.stdout.split('\n').map((line, idx, arr) => idx === arr.length - 1 ? line : line + '\n')
+                    });
+                }
+                if (cell.output.stderr) {
+                    outputs.push({
+                        output_type: 'stream',
+                        name: 'stderr',
+                        text: cell.output.stderr.split('\n').map((line, idx, arr) => idx === arr.length - 1 ? line : line + '\n')
+                    });
+                }
+                if (cell.output.plots && cell.output.plots.length > 0) {
+                    cell.output.plots.forEach(plotBase64 => {
+                        outputs.push({
+                            output_type: 'display_data',
+                            data: {
+                                'image/png': plotBase64
+                            },
+                            metadata: {}
+                        });
+                    });
+                }
+            }
+
+            return {
+                cell_type: 'code',
+                execution_count: cell.executionIndex || null,
+                metadata: {},
+                outputs: outputs,
+                source: source
+            };
+        } else {
+            return {
+                cell_type: 'markdown',
+                metadata: {},
+                source: source
+            };
+        }
+    });
+
+    const titleEl = document.getElementById('notebookTitle');
+    const title = titleEl ? titleEl.value : 'Untitled_Iluvatar_Notebook.ipynb';
+
+    return {
+        cells: ipynbCells,
+        metadata: {
+            kernelspec: {
+                display_name: 'Python 3 (天数智芯 BI-150)',
+                language: 'python',
+                name: 'python3'
+            },
+            language_info: {
+                name: 'python'
+            },
+            title: title
+        },
+        nbformat: 4,
+        nbformat_minor: 2
+    };
+}
+
+// Convert standard .ipynb JSON object to state
+export function importNotebookFromIpynb(ipynbObj) {
+    if (!ipynbObj || !Array.isArray(ipynbObj.cells)) {
+        throw new Error("无效的 .ipynb 文件结构");
+    }
+
+    const importedCells = ipynbObj.cells.map(c => {
+        const type = c.cell_type === 'code' ? 'code' : 'markdown';
+        const content = Array.isArray(c.source) ? c.source.join('') : (c.source || '');
+        
+        let output = null;
+        if (type === 'code' && Array.isArray(c.outputs) && c.outputs.length > 0) {
+            let stdout = '';
+            let stderr = '';
+            const plots = [];
+
+            c.outputs.forEach(out => {
+                if (out.output_type === 'stream') {
+                    const text = Array.isArray(out.text) ? out.text.join('') : (out.text || '');
+                    if (out.name === 'stdout') {
+                        stdout += text;
+                    } else if (out.name === 'stderr') {
+                        stderr += text;
+                    }
+                } else if ((out.output_type === 'display_data' || out.output_type === 'execute_result') && out.data) {
+                    if (out.data['image/png']) {
+                        // Standard base64 content
+                        plots.push(out.data['image/png'].replace(/\n/g, ''));
+                    }
+                }
+            });
+
+            if (stdout || stderr || plots.length > 0) {
+                output = { stdout, stderr, plots };
+            }
+        }
+
+        const cell = {
+            id: 'cell_' + Math.random().toString(36).substr(2, 9),
+            type: type,
+            content: content,
+            output: output
+        };
+
+        if (type === 'code') {
+            cell.elapsedTime = null;
+            cell.success = !output || !output.stderr;
+            cell.isExecuting = false;
+            cell.executionIndex = c.execution_count || null;
+        } else {
+            cell.isEditingMarkdown = false;
+        }
+
+        return cell;
+    });
+
+    // Update state
+    state.cells = importedCells;
+    state.activeCellId = importedCells.length > 0 ? importedCells[0].id : null;
+    
+    if (ipynbObj.metadata && ipynbObj.metadata.title) {
+        const titleEl = document.getElementById('notebookTitle');
+        if (titleEl) {
+            titleEl.value = ipynbObj.metadata.title.endsWith('.ipynb') ? ipynbObj.metadata.title : ipynbObj.metadata.title + '.ipynb';
+        }
+    }
+
+    saveNotebookToLocalStorage();
+}
+

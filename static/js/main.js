@@ -8,7 +8,10 @@ import {
     deleteCell,
     moveCell,
     activateCell,
-    deactivateAllCells
+    deactivateAllCells,
+    restoreLastDeletedCell,
+    exportNotebookAsIpynb,
+    importNotebookFromIpynb
 } from './state.js';
 
 import {
@@ -75,6 +78,7 @@ const rendererCallbacks = {
     },
     onAiAssist: (id, prompt, btn) => runCellAiAssist(id, prompt, btn),
     onDebug: (id, btn) => runCellDebug(id, btn),
+    onExplainCell: (id) => runCellExplain(id),
     onAcceptOverwrite: (id, code) => {
         const cell = state.cells.find(c => c.id === id);
         if (cell) {
@@ -209,6 +213,49 @@ function setupEventListeners() {
         saveNotebookToLocalStorage();
     });
 
+    // Notebook Import/Export
+    document.getElementById('exportNotebookBtn').addEventListener('click', () => {
+        const ipynbData = exportNotebookAsIpynb();
+        const jsonStr = JSON.stringify(ipynbData, null, 2);
+        const titleEl = document.getElementById('notebookTitle');
+        const filename = titleEl ? titleEl.value : 'Untitled_Iluvatar_Notebook.ipynb';
+        
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename.endsWith('.ipynb') ? filename : filename + '.ipynb';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showFloatingNotification('导出 Notebook 成功！');
+    });
+
+    const importInput = document.getElementById('importNotebookInput');
+    document.getElementById('importNotebookBtn').addEventListener('click', () => {
+        importInput.click();
+    });
+
+    importInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const ipynbObj = JSON.parse(event.target.result);
+                importNotebookFromIpynb(ipynbObj);
+                triggerRender();
+                showFloatingNotification('导入 Notebook 成功！');
+            } catch (err) {
+                alert('解析 .ipynb 文件失败: ' + err.message);
+            }
+            importInput.value = ''; // Reset input
+        };
+        reader.readAsText(file);
+    });
+
     // Theme toggler (placeholder)
     document.getElementById('themeToggleBtn').addEventListener('click', () => {
         document.body.classList.toggle('light-theme');
@@ -276,6 +323,39 @@ function setupEventListeners() {
         state.isGpuModalOpen = false;
     });
 
+    // Sidebar Tabs navigation
+    const aiAssistantTabBtn = document.getElementById('aiAssistantTabBtn');
+    const execHistoryTabBtn = document.getElementById('execHistoryTabBtn');
+    const aiAssistantTabContent = document.getElementById('aiAssistantTabContent');
+    const execHistoryTabContent = document.getElementById('execHistoryTabContent');
+
+    if (aiAssistantTabBtn && execHistoryTabBtn) {
+        aiAssistantTabBtn.addEventListener('click', () => {
+            aiAssistantTabBtn.classList.add('active');
+            execHistoryTabBtn.classList.remove('active');
+            aiAssistantTabContent.classList.remove('hidden');
+            execHistoryTabContent.classList.add('hidden');
+        });
+
+        execHistoryTabBtn.addEventListener('click', () => {
+            execHistoryTabBtn.classList.add('active');
+            aiAssistantTabBtn.classList.remove('active');
+            execHistoryTabContent.classList.remove('hidden');
+            aiAssistantTabContent.classList.add('hidden');
+            renderHistoryList();
+        });
+    }
+
+    // Clear history
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    if (clearHistoryBtn) {
+        clearHistoryBtn.addEventListener('click', () => {
+            localStorage.removeItem('notebook_execution_history');
+            renderHistoryList();
+            showFloatingNotification('执行历史已清空！');
+        });
+    }
+
     // Sidebar AI Chat
     const aiSidebar = document.getElementById('aiSidebar');
     const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
@@ -311,9 +391,117 @@ function setupEventListeners() {
 
     // Document click to de-activate cells
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.cell-container') && !e.target.closest('.action-btn') && !e.target.closest('.round-add-btn') && !e.target.closest('.hover-add-cell-trigger')) {
+        if (!e.target.closest('.cell-container') && !e.target.closest('.action-btn') && !e.target.closest('.round-add-btn') && !e.target.closest('.hover-add-cell-trigger') && !e.target.closest('.sidebar-tabs')) {
             deactivateAllCells();
             triggerRender();
+        }
+    });
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+        const activeEl = document.activeElement;
+        const isTextarea = activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT');
+        
+        // 1. Run Cell: Ctrl/Cmd + Enter
+        if (cmdOrCtrl && e.key === 'Enter') {
+            e.preventDefault();
+            if (state.activeCellId) {
+                runCell(state.activeCellId);
+            }
+            return;
+        }
+
+        // 2. Run and Jump/Create: Shift + Enter
+        if (e.shiftKey && e.key === 'Enter') {
+            e.preventDefault();
+            if (state.activeCellId) {
+                const currentIdx = state.cells.findIndex(c => c.id === state.activeCellId);
+                runCell(state.activeCellId);
+                
+                if (currentIdx !== -1) {
+                    if (currentIdx + 1 < state.cells.length) {
+                        const nextCell = state.cells[currentIdx + 1];
+                        state.activeCellId = nextCell.id;
+                    } else {
+                        addCell('code');
+                    }
+                    triggerRender();
+                    
+                    // Focus next editor
+                    setTimeout(() => {
+                        const nextContainer = document.getElementById(state.activeCellId);
+                        if (nextContainer) {
+                            const ta = nextContainer.querySelector('textarea');
+                            if (ta) ta.focus();
+                        }
+                    }, 50);
+                }
+            }
+            return;
+        }
+
+        // 3. Save: Ctrl/Cmd + S
+        if (cmdOrCtrl && e.key === 's') {
+            e.preventDefault();
+            saveNotebookToLocalStorage();
+            showFloatingNotification('Notebook 已保存！');
+            return;
+        }
+
+        // 4. Defocus/Esc to exit edit mode
+        if (e.key === 'Escape') {
+            if (isTextarea) {
+                activeEl.blur();
+                deactivateAllCells();
+                triggerRender();
+            }
+            return;
+        }
+
+        // 5. Command Mode (non-editor shortcuts)
+        if (!isTextarea && state.activeCellId) {
+            const currentIdx = state.cells.findIndex(c => c.id === state.activeCellId);
+            if (currentIdx === -1) return;
+
+            // Ctrl/Cmd + A: Add Cell Above
+            if (cmdOrCtrl && e.key === 'a') {
+                e.preventDefault();
+                addCell('code', currentIdx);
+                triggerRender();
+                return;
+            }
+
+            // Ctrl/Cmd + B: Add Cell Below
+            if (cmdOrCtrl && e.key === 'b') {
+                e.preventDefault();
+                addCell('code', currentIdx + 1);
+                triggerRender();
+                return;
+            }
+
+            // Ctrl/Cmd + D: Delete Cell
+            if (cmdOrCtrl && e.key === 'd') {
+                e.preventDefault();
+                deleteCell(state.activeCellId);
+                triggerRender();
+                showFloatingNotification('单元格已删除！');
+                return;
+            }
+
+            // Ctrl/Cmd + Z: Cell-Level Undo
+            if (cmdOrCtrl && e.key === 'z') {
+                e.preventDefault();
+                const restored = restoreLastDeletedCell();
+                if (restored) {
+                    triggerRender();
+                    showFloatingNotification('已撤销删除单元格！');
+                } else {
+                    showFloatingNotification('没有可撤销的删除记录');
+                }
+                return;
+            }
         }
     });
 }
@@ -340,6 +528,7 @@ function runCell(id) {
         };
         cell.success = data.success;
         cell.elapsedTime = data.elapsed_time;
+        saveExecutionToHistory(cell.content, data.success, data.stdout || data.stderr);
     })
     .catch(err => {
         cell.success = false;
@@ -348,6 +537,7 @@ function runCell(id) {
             stderr: 'Kernel Error: ' + err.message,
             plots: []
         };
+        saveExecutionToHistory(cell.content, false, err.message);
     })
     .finally(() => {
         cell.isExecuting = false;
@@ -429,6 +619,32 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     const codeElement = previewContainer ? previewContainer.querySelector('pre code') : null;
 
     // Build context
+    let contextText = "";
+    const includeContextEl = document.getElementById('includeContextCheckbox');
+    const includeContext = includeContextEl ? includeContextEl.checked : false;
+    if (includeContext) {
+        const cellIdx = state.cells.findIndex(c => c.id === id);
+        if (cellIdx > 0) {
+            contextText = "以下是当前单元格前的所有单元格代码与执行输出，供你参考变量、导入的库和上下文：\n\n";
+            for (let i = 0; i < cellIdx; i++) {
+                const c = state.cells[i];
+                contextText += `[单元格 ${i+1}] (类型: ${c.type})\n`;
+                contextText += `--- 代码/内容 ---\n${c.content}\n`;
+                if (c.output) {
+                    if (c.output.stdout) contextText += `--- 标准输出 ---\n${c.output.stdout}\n`;
+                    if (c.output.stderr) contextText += `--- 报错输出 ---\n${c.output.stderr}\n`;
+                }
+                contextText += '\n';
+            }
+        }
+    }
+
+    let userMsgContent = "";
+    if (contextText) {
+        userMsgContent += contextText + "\n请结合以上上下文，编写/修改以下单元格代码。\n\n";
+    }
+    userMsgContent += `原单元格代码：\n${cell.content}\n\n我的提示词：\n${prompt}`;
+
     const messages = [
         {
             role: 'system',
@@ -439,7 +655,7 @@ async function runCellAiAssist(id, prompt, buttonElement) {
         },
         {
             role: 'user',
-            content: `原单元格代码：\n${cell.content}\n\n我的提示词：\n${prompt}`
+            content: userMsgContent
         }
     ];
 
@@ -759,6 +975,214 @@ function appendStreamingChatMessage(sender) {
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }
     };
+}
+
+// Save cell execution details to localStorage history log
+function saveExecutionToHistory(code, success, outputText) {
+    if (!code || !code.trim()) return;
+    let history = [];
+    try {
+        const stored = localStorage.getItem('notebook_execution_history');
+        if (stored) {
+            history = JSON.parse(stored);
+        }
+    } catch (e) {
+        console.error("Failed to load execution history:", e);
+    }
+    
+    const newItem = {
+        id: 'hist_' + Math.random().toString(36).substr(2, 9),
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        code: code,
+        success: success,
+        outputSummary: outputText ? outputText.substring(0, 150) : ''
+    };
+    
+    history.unshift(newItem);
+    if (history.length > 50) {
+        history.pop();
+    }
+    
+    localStorage.setItem('notebook_execution_history', JSON.stringify(history));
+    
+    const execHistoryTabBtn = document.getElementById('execHistoryTabBtn');
+    if (execHistoryTabBtn && execHistoryTabBtn.classList.contains('active')) {
+        renderHistoryList();
+    }
+}
+
+// Render the side log of executed codes
+function renderHistoryList() {
+    const listContainer = document.getElementById('historyList');
+    const countEl = document.getElementById('historyCount');
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = '';
+    
+    let history = [];
+    try {
+        const stored = localStorage.getItem('notebook_execution_history');
+        if (stored) {
+            history = JSON.parse(stored);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+    
+    if (countEl) {
+        countEl.innerText = history.length > 0 ? `共 ${history.length} 条记录` : '暂无历史记录';
+    }
+    
+    if (history.length === 0) {
+        listContainer.innerHTML = `
+            <div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 40px; padding: 0 10px;">
+                <i class="fa-solid fa-clock-rotate-left" style="font-size: 1.8rem; margin-bottom: 12px; display: block; opacity: 0.25; color: var(--accent-purple);"></i>
+                暂无代码执行历史
+            </div>
+        `;
+        return;
+    }
+    
+    history.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'history-item';
+        
+        const metaEl = document.createElement('div');
+        metaEl.className = 'history-item-meta';
+        metaEl.innerHTML = `
+            <span class="history-item-time"><i class="fa-solid fa-clock"></i> ${item.timestamp}</span>
+            <span class="history-item-badge ${item.success ? 'success' : 'error'}">${item.success ? '成功' : '失败'}</span>
+        `;
+        
+        const codeEl = document.createElement('pre');
+        codeEl.className = 'history-item-code';
+        codeEl.innerText = item.code;
+        
+        const actionsEl = document.createElement('div');
+        actionsEl.className = 'history-item-actions';
+        
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'history-action-btn';
+        copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i> 复制';
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(item.code);
+            showFloatingNotification('代码已复制！');
+        });
+        
+        const restoreBtn = document.createElement('button');
+        restoreBtn.className = 'history-action-btn';
+        restoreBtn.innerHTML = '<i class="fa-solid fa-arrow-left-long"></i> 恢复';
+        restoreBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let insertIdx = state.cells.length;
+            if (state.activeCellId) {
+                const currentIdx = state.cells.findIndex(c => c.id === state.activeCellId);
+                if (currentIdx !== -1) {
+                    insertIdx = currentIdx + 1;
+                }
+            }
+            const newCell = addCell('code', insertIdx);
+            newCell.content = item.code;
+            saveNotebookToLocalStorage();
+            triggerRender();
+            showFloatingNotification('已恢复代码至新单元格！');
+        });
+        
+        actionsEl.appendChild(copyBtn);
+        actionsEl.appendChild(restoreBtn);
+        
+        itemEl.appendChild(metaEl);
+        itemEl.appendChild(codeEl);
+        itemEl.appendChild(actionsEl);
+        listContainer.appendChild(itemEl);
+    });
+}
+
+// AI Code Explanation inside Sidebar
+async function runCellExplain(id) {
+    const cell = state.cells.find(c => c.id === id);
+    if (!cell) return;
+
+    // Open Right Sidebar Chat & Switch to AI Assistant Tab
+    const aiSidebar = document.getElementById('aiSidebar');
+    const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
+    if (aiSidebar) aiSidebar.classList.remove('collapsed');
+    if (openSidebarBtn) openSidebarBtn.classList.add('hidden');
+
+    const aiAssistantTabBtn = document.getElementById('aiAssistantTabBtn');
+    const execHistoryTabBtn = document.getElementById('execHistoryTabBtn');
+    const aiAssistantTabContent = document.getElementById('aiAssistantTabContent');
+    const execHistoryTabContent = document.getElementById('execHistoryTabContent');
+
+    if (aiAssistantTabBtn && execHistoryTabBtn) {
+        aiAssistantTabBtn.classList.add('active');
+        execHistoryTabBtn.classList.remove('active');
+        aiAssistantTabContent.classList.remove('hidden');
+        execHistoryTabContent.classList.add('hidden');
+    }
+
+    // Append explanation query
+    appendChatMessage('user', `解释以下代码的含义与作用：\n\`\`\`python\n${cell.content}\n\`\`\``);
+
+    // Add thinking loader
+    const loaderId = 'loader_' + Math.random().toString(36).substr(2, 9);
+    const chatHistory = document.getElementById('chatHistory');
+    
+    const loaderMsg = document.createElement('div');
+    loaderMsg.className = 'chat-message assistant';
+    loaderMsg.id = loaderId;
+    loaderMsg.innerHTML = `
+        <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="chat-bubble">
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 正在分析代码，请稍候...</span>
+        </div>
+    `;
+    if (chatHistory) {
+        chatHistory.appendChild(loaderMsg);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    const messages = [
+        {
+            role: 'system',
+            content: `你是一个部署在天数智芯 (Iluvatar Corex) AI 开发环境下的代码解释专家。
+请使用精简且专业的中文解释用户提供的 Python 代码的含义、结构、设计逻辑以及其作用。
+如果代码中包含天数智芯国产算力/PyTorch加速相关的指令与设置，请重点解释说明。请以排版清晰的 markdown 格式输出。`
+        },
+        {
+            role: 'user',
+            content: `需要解释的代码：\n\`\`\`python\n${cell.content}\n\`\`\``
+        }
+    ];
+
+    let streamMessage = null;
+
+    try {
+        await callLlmProxyStream(
+            messages,
+            (chunkText) => {
+                if (!streamMessage) {
+                    const loader = document.getElementById(loaderId);
+                    if (loader) loader.remove();
+                    streamMessage = appendStreamingChatMessage('assistant');
+                }
+                streamMessage.update(chunkText);
+            }
+        );
+    } catch (e) {
+        console.warn("Streaming code explanation failed, falling back to non-streaming:", e);
+        try {
+            const reply = await callLlmProxy(messages);
+            const loader = document.getElementById(loaderId);
+            if (loader) loader.remove();
+            appendChatMessage('assistant', reply);
+        } catch (fallbackErr) {
+            const loader = document.getElementById(loaderId);
+            if (loader) loader.remove();
+            appendChatMessage('assistant', `⚠️ 解释出错: ${fallbackErr.message}\n请检查 [设置] 中的 API 配置。`);
+        }
+    }
 }
 
 // Lifecycle Init: runs when DOM is ready
