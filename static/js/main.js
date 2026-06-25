@@ -22,7 +22,14 @@ import {
     callLlmProxy,
     callLlmProxyStream,
     lintCellOnBackend,
-    fetchKernelVariables
+    fetchKernelVariables,
+    fetchNotebooksList,
+    readNotebookFromServer,
+    saveNotebookToServer,
+    createNotebookOnServer,
+    renameNotebookOnServer,
+    deleteNotebookFromServer,
+    interruptKernelOnBackend
 } from './api.js';
 
 import {
@@ -246,14 +253,261 @@ async function updateVariablesInspector() {
     }
 }
 
+// Render the list of files in left sidebar
+function renderFileList() {
+    const listEl = document.getElementById('fileList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '';
+    
+    if (state.notebookFiles.length === 0) {
+        listEl.innerHTML = '<li class="no-files-msg">暂无 Notebook 文件</li>';
+        return;
+    }
+    
+    state.notebookFiles.forEach(filename => {
+        const li = document.createElement('li');
+        li.className = `file-item ${filename === state.currentFilename ? 'active' : ''}`;
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'file-name';
+        nameSpan.innerHTML = `<i class="fa-solid fa-file-invoice"></i> ${filename}`;
+        nameSpan.addEventListener('click', () => {
+            selectNotebookFile(filename);
+        });
+        li.appendChild(nameSpan);
+        
+        const actions = document.createElement('div');
+        actions.className = 'file-actions';
+        
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'file-action-btn';
+        renameBtn.innerHTML = '<i class="fa-solid fa-pen-to-square"></i>';
+        renameBtn.title = '重命名';
+        renameBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            renameNotebookPrompt(filename);
+        });
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'file-action-btn delete';
+        deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+        deleteBtn.title = '删除';
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteNotebookPrompt(filename);
+        });
+        
+        actions.appendChild(renameBtn);
+        actions.appendChild(deleteBtn);
+        li.appendChild(actions);
+        listEl.appendChild(li);
+    });
+}
+
+// Load selected notebook from server
+async function selectNotebookFile(filename) {
+    if (state.currentFilename === filename && state.cells.length > 0) return;
+    
+    // Save current notebook state before switching
+    if (state.currentFilename && state.cells.length > 0) {
+        try {
+            const content = exportNotebookAsIpynb();
+            await saveNotebookToServer(state.currentFilename, content);
+        } catch (e) {
+            console.error("Auto-save failed before switching notebook:", e);
+        }
+    }
+    
+    try {
+        const data = await readNotebookFromServer(filename);
+        if (data.success) {
+            state.currentFilename = filename;
+            localStorage.setItem('notebook_current_filename', filename);
+            importNotebookFromIpynb(data.content);
+            triggerRender();
+            renderFileList();
+            
+            // Sync title input
+            const titleEl = document.getElementById('notebookTitle');
+            if (titleEl) titleEl.value = filename;
+            
+            showFloatingNotification(`已加载 ${filename}`);
+        } else {
+            showFloatingNotification(`加载失败: ${data.message}`);
+        }
+    } catch (err) {
+        showFloatingNotification(`读取 Notebook 失败: ${err.message}`);
+    }
+}
+
+// Rename notebook via prompt dialog
+async function renameNotebookPrompt(filename) {
+    const baseName = filename.endsWith('.ipynb') ? filename.slice(0, -6) : filename;
+    const newBaseName = prompt('输入新的文件名:', baseName);
+    if (!newBaseName) return;
+    
+    const cleanNewName = newBaseName.trim();
+    if (!cleanNewName) return;
+    
+    const newFilename = cleanNewName.endsWith('.ipynb') ? cleanNewName : cleanNewName + '.ipynb';
+    
+    try {
+        const res = await renameNotebookOnServer(filename, newFilename);
+        if (res.success) {
+            if (state.currentFilename === filename) {
+                state.currentFilename = newFilename;
+                localStorage.setItem('notebook_current_filename', newFilename);
+                const titleEl = document.getElementById('notebookTitle');
+                if (titleEl) titleEl.value = newFilename;
+            }
+            showFloatingNotification('重命名成功！');
+            await refreshNotebooksListFromServer();
+        } else {
+            alert(`重命名失败: ${res.message}`);
+        }
+    } catch (err) {
+        alert(`重命名出错: ${err.message}`);
+    }
+}
+
+// Delete notebook via confirm prompt
+async function deleteNotebookPrompt(filename) {
+    if (!confirm(`确定要删除笔记本 ${filename} 吗？`)) return;
+    
+    try {
+        const res = await deleteNotebookFromServer(filename);
+        if (res.success) {
+            showFloatingNotification('删除成功！');
+            
+            if (state.currentFilename === filename) {
+                state.currentFilename = '';
+                localStorage.removeItem('notebook_current_filename');
+            }
+            
+            await refreshNotebooksListFromServer();
+            
+            if (!state.currentFilename) {
+                if (state.notebookFiles.length > 0) {
+                    await selectNotebookFile(state.notebookFiles[0]);
+                } else {
+                    await createNewNotebook();
+                }
+            }
+        } else {
+            alert(`删除失败: ${res.message}`);
+        }
+    } catch (err) {
+        alert(`删除出错: ${err.message}`);
+    }
+}
+
+// Create new blank notebook on server
+async function createNewNotebook() {
+    try {
+        const res = await createNotebookOnServer();
+        if (res.success) {
+            showFloatingNotification('新建笔记本成功！');
+            await refreshNotebooksListFromServer();
+            await selectNotebookFile(res.filename);
+        } else {
+            alert(`新建失败: ${res.message}`);
+        }
+    } catch (err) {
+        alert(`新建出错: ${err.message}`);
+    }
+}
+
+// Sync notebooks list from server
+async function refreshNotebooksListFromServer() {
+    try {
+        const data = await fetchNotebooksList();
+        if (data.success) {
+            state.notebookFiles = data.files;
+            renderFileList();
+        }
+    } catch (err) {
+        console.error("Failed to load notebooks list:", err);
+    }
+}
+
 // Bind Global UI Elements
 function setupEventListeners() {
     const refreshVarsBtn = document.getElementById('refreshVarsBtn');
     if (refreshVarsBtn) {
         refreshVarsBtn.addEventListener('click', updateVariablesInspector);
     }
-    // Notebook Title Update
-    document.getElementById('notebookTitle').addEventListener('blur', saveNotebookToLocalStorage);
+    
+    const interruptKernelBtn = document.getElementById('interruptKernelBtn');
+    if (interruptKernelBtn) {
+        interruptKernelBtn.addEventListener('click', async () => {
+            try {
+                const res = await interruptKernelOnBackend();
+                if (res.success) {
+                    showFloatingNotification('⚡️ 已向内核发送强行中断信号');
+                } else {
+                    alert(`中断失败: ${res.message}`);
+                }
+            } catch (err) {
+                alert(`中断请求出错: ${err.message}`);
+            }
+        });
+    }
+    // Notebook Title Update / Rename on server
+    const titleEl = document.getElementById('notebookTitle');
+    if (titleEl) {
+        titleEl.addEventListener('focus', function() {
+            this.setAttribute('data-old-val', this.value);
+        });
+        titleEl.addEventListener('blur', async function() {
+            const oldVal = this.getAttribute('data-old-val');
+            const newVal = this.value.trim();
+            if (!newVal || newVal === oldVal) return;
+            
+            const oldFilename = state.currentFilename || oldVal;
+            const newFilename = newVal.endsWith('.ipynb') ? newVal : newVal + '.ipynb';
+            
+            try {
+                const res = await renameNotebookOnServer(oldFilename, newFilename);
+                if (res.success) {
+                    state.currentFilename = newFilename;
+                    localStorage.setItem('notebook_current_filename', newFilename);
+                    this.value = newFilename;
+                    showFloatingNotification('文件名已更新！');
+                    await refreshNotebooksListFromServer();
+                } else {
+                    alert(`重命名失败: ${res.message}`);
+                    this.value = oldFilename;
+                }
+            } catch (err) {
+                alert(`重命名出错: ${err.message}`);
+                this.value = oldFilename;
+            }
+        });
+    }
+
+    // Left File Sidebar Toggle
+    const fileSidebar = document.getElementById('fileSidebar');
+    const openFileSidebarBtn = document.getElementById('openFileSidebarFloatingBtn');
+    const toggleFileSidebarBtn = document.getElementById('toggleFileSidebarBtn');
+    
+    if (toggleFileSidebarBtn && fileSidebar && openFileSidebarBtn) {
+        toggleFileSidebarBtn.addEventListener('click', () => {
+            fileSidebar.classList.add('collapsed');
+            openFileSidebarBtn.classList.remove('hidden');
+        });
+        
+        openFileSidebarBtn.addEventListener('click', () => {
+            fileSidebar.classList.remove('collapsed');
+            openFileSidebarBtn.classList.add('hidden');
+        });
+    }
+
+    // New Notebook button
+    const newNotebookBtn = document.getElementById('newNotebookBtn');
+    if (newNotebookBtn) {
+        newNotebookBtn.addEventListener('click', createNewNotebook);
+    }
 
     // Top action buttons
     document.getElementById('addCodeBtn').addEventListener('click', () => {
@@ -612,6 +866,7 @@ function runCell(id) {
         cell.output = {
             stdout: data.stdout,
             stderr: data.stderr,
+            html: data.html,
             plots: data.plots
         };
         cell.success = data.success;
@@ -1279,10 +1534,16 @@ async function runCellExplain(id) {
 
 // Lifecycle Init: runs when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. Set state auto-save callback to server
+    state.onSave = () => {
+        if (state.currentFilename) {
+            const ipynbData = exportNotebookAsIpynb();
+            saveNotebookToServer(state.currentFilename, ipynbData)
+                .catch(err => console.error("Auto-save to server failed:", err));
+        }
+    };
+
     initConfig().then((config) => {
-        // Load default cells if none exist
-        loadSavedNotebook();
-        
         // Sync configuration fields in settings modal
         const apiEl = document.getElementById('apiUrlInput');
         const tokenEl = document.getElementById('apiTokenInput');
@@ -1292,12 +1553,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tokenEl) tokenEl.value = config.token;
         if (modelEl) modelEl.value = config.model;
 
-        if (state.cells.length === 0) {
-            addInitialCells();
-        } else {
-            triggerRender();
-        }
-        
+        // 2. Fetch server notebooks list and load active notebook
+        fetchNotebooksList()
+            .then(data => {
+                if (data.success) {
+                    state.notebookFiles = data.files;
+                    const savedFilename = localStorage.getItem('notebook_current_filename');
+                    
+                    if (savedFilename && state.notebookFiles.includes(savedFilename)) {
+                        selectNotebookFile(savedFilename);
+                    } else if (state.notebookFiles.length > 0) {
+                        selectNotebookFile(state.notebookFiles[0]);
+                    } else {
+                        createNewNotebook();
+                    }
+                } else {
+                    // Fallback to local storage
+                    loadSavedNotebook();
+                    if (state.cells.length === 0) {
+                        addInitialCells();
+                    } else {
+                        triggerRender();
+                    }
+                }
+            })
+            .catch(err => {
+                console.warn("Failed to load notebooks from server, falling back to local storage:", err);
+                loadSavedNotebook();
+                if (state.cells.length === 0) {
+                    addInitialCells();
+                } else {
+                    triggerRender();
+                }
+            });
+
         startGpuTelemetry();
     });
 

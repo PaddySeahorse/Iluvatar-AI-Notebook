@@ -4,15 +4,22 @@ export const state = {
     cells: [],
     activeCellId: null,
     isGpuModalOpen: false,
-    executionCounter: 0
+    executionCounter: 0,
+    currentFilename: '',
+    notebookFiles: [],
+    onSave: null
 };
 
-// Save Notebook state to localStorage
+// Save Notebook state to localStorage and invoke server-side save
 export function saveNotebookToLocalStorage() {
     const titleEl = document.getElementById('notebookTitle');
     const title = titleEl ? titleEl.value : 'Untitled_Iluvatar_Notebook.ipynb';
     localStorage.setItem('notebook_title', title);
     localStorage.setItem('notebook_cells', JSON.stringify(state.cells));
+    
+    if (state.onSave) {
+        state.onSave();
+    }
 }
 
 // Load Notebook from localStorage
@@ -126,7 +133,6 @@ export function exportNotebookAsIpynb() {
 
         if (cell.type === 'code') {
             const outputs = [];
-            if (cell.output) {
                 if (cell.output.stdout) {
                     outputs.push({
                         output_type: 'stream',
@@ -139,6 +145,15 @@ export function exportNotebookAsIpynb() {
                         output_type: 'stream',
                         name: 'stderr',
                         text: cell.output.stderr.split('\n').map((line, idx, arr) => idx === arr.length - 1 ? line : line + '\n')
+                    });
+                }
+                if (cell.output.html) {
+                    outputs.push({
+                        output_type: 'display_data',
+                        data: {
+                            'text/html': cell.output.html.split('\n').map((line, idx, arr) => idx === arr.length - 1 ? line : line + '\n')
+                        },
+                        metadata: {}
                     });
                 }
                 if (cell.output.plots && cell.output.plots.length > 0) {
@@ -205,6 +220,7 @@ export function importNotebookFromIpynb(ipynbObj) {
         if (type === 'code' && Array.isArray(c.outputs) && c.outputs.length > 0) {
             let stdout = '';
             let stderr = '';
+            let html = '';
             const plots = [];
 
             c.outputs.forEach(out => {
@@ -220,11 +236,15 @@ export function importNotebookFromIpynb(ipynbObj) {
                         // Standard base64 content
                         plots.push(out.data['image/png'].replace(/\n/g, ''));
                     }
+                    if (out.data['text/html']) {
+                        const h = Array.isArray(out.data['text/html']) ? out.data['text/html'].join('') : out.data['text/html'];
+                        html += h;
+                    }
                 }
             });
 
-            if (stdout || stderr || plots.length > 0) {
-                output = { stdout, stderr, plots };
+            if (stdout || stderr || html || plots.length > 0) {
+                output = { stdout, stderr, html, plots };
             }
         }
 

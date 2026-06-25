@@ -66,8 +66,30 @@
         </div>
     </header>
 
-    <!-- Main Workspace Container -->
     <main class="workspace">
+        <!-- Left Sidebar: File Browser -->
+        <aside class="file-sidebar" id="fileSidebar">
+            <div class="file-sidebar-header">
+                <div class="file-sidebar-title">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <span>工作空间</span>
+                </div>
+                <button id="newNotebookBtn" class="new-file-btn" title="新建笔记本">
+                    <i class="fa-solid fa-file-circle-plus"></i>
+                </button>
+            </div>
+            
+            <div class="file-list-container">
+                <ul class="file-list" id="fileList">
+                    <!-- Dynamically populated files -->
+                </ul>
+            </div>
+            
+            <button id="toggleFileSidebarBtn" class="toggle-file-sidebar-btn" title="折叠面板">
+                <i class="fa-solid fa-angles-left"></i>
+            </button>
+        </aside>
+
         <!-- Notebook Left Panel (Cells List) -->
         <section class="notebook-container">
             <div class="notebook-header">
@@ -76,6 +98,7 @@
                     <span class="notebook-meta">天数智芯国产算力加速中</span>
                 </div>
                 <div class="notebook-actions">
+                    <button id="interruptKernelBtn" class="action-btn error-btn" title="强制中断正在运行的代码"><i class="fa-solid fa-stop"></i> 中断执行</button>
                     <button id="importNotebookBtn" class="action-btn secondary" title="导入 .ipynb 文件"><i class="fa-solid fa-file-import"></i> 导入</button>
                     <button id="exportNotebookBtn" class="action-btn secondary" title="导出为 .ipynb 文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                     <input type="file" id="importNotebookInput" accept=".ipynb" style="display: none;">
@@ -194,6 +217,11 @@
         <!-- Toggle Button for Collapsed Sidebar -->
         <button id="openSidebarFloatingBtn" class="floating-sidebar-btn hidden" title="展开 AI 助手">
             <i class="fa-solid fa-wand-magic-sparkles"></i>
+        </button>
+
+        <!-- Toggle Button for Collapsed File Sidebar -->
+        <button id="openFileSidebarFloatingBtn" class="floating-file-sidebar-btn hidden" title="展开文件浏览器">
+            <i class="fa-solid fa-folder-open"></i>
         </button>
     </main>
 
