@@ -321,14 +321,22 @@ function renderCodeEditor(cell, callbacks) {
     return inputArea;
 }
 
-// Helper: render Cell Outputs (stdout, stderr, plots)
+// Helper: render Cell Outputs (stdout, stderr, HTML, plots)
 function renderCellOutput(cell) {
     const hasStdout = cell.output.stdout && cell.output.stdout.trim();
     const hasStderr = cell.output.stderr && cell.output.stderr.trim();
+    const hasHtml = cell.output.html && cell.output.html.trim();
     const hasPlots = cell.output.plots && cell.output.plots.length > 0;
 
     const outputArea = document.createElement('div');
     outputArea.className = 'cell-output-area';
+
+    if (hasHtml) {
+        const htmlContainer = document.createElement('div');
+        htmlContainer.className = 'output-html';
+        htmlContainer.innerHTML = cell.output.html;
+        outputArea.appendChild(htmlContainer);
+    }
 
     if (hasStdout) {
         const pre = document.createElement('pre');

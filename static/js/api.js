@@ -65,6 +65,15 @@ export async function runCellOnBackend(code) {
     return await res.json();
 }
 
+// Interrupt kernel execution
+export async function interruptKernelOnBackend() {
+    const res = await fetch('/api/interrupt_kernel', {
+        method: 'POST'
+    });
+    if (!res.ok) throw new Error("Failed to interrupt kernel");
+    return await res.json();
+}
+
 // Proxy call to LLM Endpoint (non-streaming)
 export async function callLlmProxy(messages) {
     const res = await fetch('/api/ai_call', {
@@ -190,6 +199,71 @@ export async function lintCellOnBackend(code) {
 export async function fetchKernelVariables() {
     const res = await fetch('/api/get_variables');
     if (!res.ok) throw new Error("Backend get_variables request failed");
+    return await res.json();
+}
+
+// Fetch list of server notebooks
+export async function fetchNotebooksList() {
+    const res = await fetch('/api/files/list');
+    if (!res.ok) throw new Error("Failed to fetch notebooks list");
+    return await res.json();
+}
+
+// Read server notebook content
+export async function readNotebookFromServer(filename) {
+    const res = await fetch(`/api/files/read?filename=${encodeURIComponent(filename)}`);
+    if (!res.ok) throw new Error(`Failed to read notebook ${filename}`);
+    return await res.json();
+}
+
+// Save notebook content to server
+export async function saveNotebookToServer(filename, content) {
+    const res = await fetch('/api/files/save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ filename, content })
+    });
+    if (!res.ok) throw new Error(`Failed to save notebook ${filename}`);
+    return await res.json();
+}
+
+// Create new blank notebook on server
+export async function createNotebookOnServer() {
+    const res = await fetch('/api/files/create', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    });
+    if (!res.ok) throw new Error("Failed to create new notebook");
+    return await res.json();
+}
+
+// Rename notebook on server
+export async function renameNotebookOnServer(oldName, newName) {
+    const res = await fetch('/api/files/rename', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ old_name: oldName, new_name: newName })
+    });
+    if (!res.ok) throw new Error(`Failed to rename notebook from ${oldName} to ${newName}`);
+    return await res.json();
+}
+
+// Delete notebook on server
+export async function deleteNotebookFromServer(filename) {
+    const res = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ filename })
+    });
+    if (!res.ok) throw new Error(`Failed to delete notebook ${filename}`);
     return await res.json();
 }
 

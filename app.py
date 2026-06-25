@@ -31,13 +31,182 @@ except Exception:
 
 app = Flask(__name__, static_folder='static')
 
-# Thread lock for stdout redirection to prevent overlapping outputs
-stdout_lock = threading.Lock()
+import multiprocessing as mp
+import signal
 
-# Persistent global namespace for cell execution (acting as the notebook kernel)
-kernel_namespace = {
-    '__builtins__': __builtins__,
-}
+# Subprocess kernel variables
+cmd_queue = None
+res_queue = None
+kernel_process = None
+cached_variables = []
+
+def kernel_worker(cmd_q, res_q):
+    import io, sys, base64, traceback, ast, subprocess
+    
+    kernel_namespace = {'__builtins__': __builtins__}
+    current_displays = []
+    
+    def custom_display(*args, **kwargs):
+        for arg in args:
+            if arg is not None:
+                if hasattr(arg, '_repr_html_'):
+                    current_displays.append({'type': 'html', 'data': arg._repr_html_()})
+                else:
+                    current_displays.append({'type': 'text', 'data': repr(arg)})
+                    
+    kernel_namespace['display'] = custom_display
+    
+    def exec_with_capture(py_code):
+        try:
+            block = ast.parse(py_code)
+            if block.body and isinstance(block.body[-1], ast.Expr):
+                last_expr = block.body[-1]
+                other_nodes = block.body[:-1]
+                
+                if other_nodes:
+                    mod = ast.Module(body=other_nodes, type_ignores=[])
+                    co = compile(mod, '<string>', 'exec')
+                    exec(co, kernel_namespace)
+                    
+                expr_mod = ast.Expression(body=last_expr.value)
+                co_expr = compile(expr_mod, '<string>', 'eval')
+                res = eval(co_expr, kernel_namespace)
+                
+                if res is not None:
+                    if hasattr(res, '_repr_html_'):
+                        current_displays.append({'type': 'html', 'data': res._repr_html_()})
+                    else:
+                        current_displays.append({'type': 'text_repr', 'data': repr(res)})
+            else:
+                exec(py_code, kernel_namespace)
+        except Exception:
+            raise
+
+    while True:
+        try:
+            task = cmd_q.get()
+            if task is None:
+                break
+                
+            code = task.get('code', '')
+            
+            stdout_capture = io.StringIO()
+            stderr_capture = io.StringIO()
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            sys.stdout = stdout_capture
+            sys.stderr = stderr_capture
+            current_displays.clear()
+            success = True
+            
+            try:
+                lines = code.split('\n')
+                current_py_lines = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('!'):
+                        if current_py_lines:
+                            exec_with_capture('\n'.join(current_py_lines))
+                            current_py_lines = []
+                        cmd = stripped[1:].strip()
+                        if cmd:
+                            process = subprocess.Popen(
+                                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                            )
+                            out, err = process.communicate()
+                            if out: sys.stdout.write(out)
+                            if err: sys.stderr.write(err)
+                            if process.returncode != 0:
+                                raise Exception(f"Command '{cmd}' failed with exit status {process.returncode}")
+                    else:
+                        current_py_lines.append(line)
+                        
+                if current_py_lines:
+                    exec_with_capture('\n'.join(current_py_lines))
+                    
+            except KeyboardInterrupt:
+                success = False
+                sys.stderr.write("\nKeyboardInterrupt: Kernel execution interrupted by user.\n")
+            except Exception as e:
+                success = False
+                traceback.print_exc(file=sys.stderr)
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+                
+            stdout_output = stdout_capture.getvalue()
+            stderr_output = stderr_capture.getvalue()
+            html_outputs = [d['data'] for d in current_displays if d['type'] == 'html']
+            html_content = '\n'.join(html_outputs) if html_outputs else ""
+            text_reprs = [d['data'] for d in current_displays if d['type'] in ('text', 'text_repr')]
+            if text_reprs:
+                if stdout_output and not stdout_output.endswith('\n'):
+                    stdout_output += '\n'
+                stdout_output += '\n'.join(text_reprs) + '\n'
+                
+            captured_plots_list = []
+            try:
+                import matplotlib.pyplot as plt
+                if plt.get_fignums():
+                    for fig_num in plt.get_fignums():
+                        fig = plt.figure(fig_num)
+                        buf = io.BytesIO()
+                        fig.savefig(buf, format='png', bbox_inches='tight')
+                        buf.seek(0)
+                        captured_plots_list.append(base64.b64encode(buf.read()).decode('utf-8'))
+                    plt.close('all')
+            except Exception as e:
+                stderr_output += f"\n[Matplotlib Capture Warning]: Failed to capture plots: {str(e)}"
+                
+            vars_list = []
+            for k, v in kernel_namespace.items():
+                if k.startswith('_') or k in ['__builtins__', 'display', 'sys', 'io', 'time', 'base64', 'traceback', 'threading', 'random', 'requests', 'matplotlib', 'plt', 'np', 'numpy']:
+                    continue
+                v_type = type(v).__name__
+                v_repr = ""
+                shape = None
+                try:
+                    if hasattr(v, 'shape'):
+                        shape = str(list(v.shape)) if hasattr(v.shape, '__iter__') else str(v.shape)
+                    if hasattr(v, '__len__') and not isinstance(v, (str, bytes)):
+                        v_repr = f"{v_type} (len={len(v)})"
+                    else:
+                        v_repr = repr(v)
+                        if len(v_repr) > 100: v_repr = v_repr[:100] + "..."
+                except:
+                    v_repr = "<Unable to display>"
+                vars_list.append({'name': k, 'type': v_type, 'repr': v_repr, 'shape': shape})
+            vars_list.sort(key=lambda x: x['name'])
+            
+            res_q.put({
+                'success': success,
+                'stdout': stdout_output,
+                'stderr': stderr_output,
+                'html': html_content,
+                'plots': captured_plots_list,
+                'variables': vars_list
+            })
+            
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            res_q.put({
+                'success': False,
+                'stdout': '',
+                'stderr': f"Worker internal error: {str(e)}",
+                'html': '',
+                'plots': [],
+                'variables': []
+            })
+
+def ensure_kernel():
+    global kernel_process, cmd_queue, res_queue
+    if kernel_process is None or not kernel_process.is_alive():
+        cmd_queue = mp.Queue()
+        res_queue = mp.Queue()
+        kernel_process = mp.Process(target=kernel_worker, args=(cmd_queue, res_queue), daemon=True)
+        kernel_process.start()
 
 # Real-time mock telemetry for Iluvatar (天数智芯) BI-150 GPU
 gpu_state = {
@@ -123,7 +292,7 @@ def get_gpu_status():
 
 @app.route('/api/run_cell', methods=['POST'])
 def run_cell():
-    global gpu_state
+    global gpu_state, cached_variables
     data = request.json or {}
     code = data.get('code', '')
     
@@ -143,95 +312,51 @@ def run_cell():
         gpu_state['utilization'] = max(gpu_state['utilization'], random.uniform(12.0, 25.0))
         gpu_state['power_draw'] = max(gpu_state['power_draw'], random.uniform(70.0, 95.0))
         gpu_state['status'] = 'Active'
-
-    stdout_capture = io.StringIO()
-    stderr_capture = io.StringIO()
-    
-    start_time = time.time()
-    success = True
-    error_traceback = ""
-
-    # Execute Python code in lock
-    with stdout_lock:
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = stdout_capture
-        sys.stderr = stderr_capture
         
-        try:
-            # Parse and execute python code or shell magic commands
-            lines = code.split('\n')
-            current_py_lines = []
-            
-            for line in lines:
-                stripped = line.strip()
-                if stripped.startswith('!'):
-                    # Execute accumulated Python code first
-                    if current_py_lines:
-                        py_code = '\n'.join(current_py_lines)
-                        current_py_lines = []
-                        exec(py_code, kernel_namespace)
-                    
-                    # Execute the shell command
-                    cmd = stripped[1:].strip()
-                    if cmd:
-                        import subprocess
-                        process = subprocess.Popen(
-                            cmd,
-                            shell=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True
-                        )
-                        stdout_data, stderr_data = process.communicate()
-                        if stdout_data:
-                            sys.stdout.write(stdout_data)
-                        if stderr_data:
-                            sys.stderr.write(stderr_data)
-                        if process.returncode != 0:
-                            raise Exception(f"Command '{cmd}' failed with exit status {process.returncode}")
-                else:
-                    current_py_lines.append(line)
-            
-            # Execute remaining Python code
-            if current_py_lines:
-                py_code = '\n'.join(current_py_lines)
-                exec(py_code, kernel_namespace)
-        except Exception as e:
-            success = False
-            # Print the traceback directly to capture it in stderr
-            traceback.print_exc(file=sys.stderr)
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-
-    elapsed_time = round(time.time() - start_time, 3)
-    stdout_output = stdout_capture.getvalue()
-    stderr_output = stderr_capture.getvalue()
-
-    # Capture any figures created with matplotlib
-    captured_plots_list = []
+    start_time = time.time()
+    
+    ensure_kernel()
+    
+    # Send code to kernel
+    cmd_queue.put({'code': code})
+    
+    # Wait for result
     try:
-        import matplotlib.pyplot as plt
-        if plt.get_fignums():
-            for fig_num in plt.get_fignums():
-                fig = plt.figure(fig_num)
-                buf = io.BytesIO()
-                fig.savefig(buf, format='png', bbox_inches='tight')
-                buf.seek(0)
-                img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-                captured_plots_list.append(img_base64)
-            plt.close('all')
+        result = res_queue.get()
     except Exception as e:
-        stderr_output += f"\n[Matplotlib Capture Warning]: Failed to capture plots: {str(e)}"
+        result = {
+            'success': False,
+            'stdout': '',
+            'stderr': f"Failed to get result from kernel: {str(e)}",
+            'html': '',
+            'plots': [],
+            'variables': cached_variables
+        }
+        
+    elapsed_time = round(time.time() - start_time, 3)
+    
+    if 'variables' in result:
+        cached_variables = result['variables']
 
     return jsonify({
-        'success': success,
-        'stdout': stdout_output,
-        'stderr': stderr_output,
+        'success': result.get('success', False),
+        'stdout': result.get('stdout', ''),
+        'stderr': result.get('stderr', ''),
+        'html': result.get('html', ''),
         'elapsed_time': elapsed_time,
-        'plots': captured_plots_list
+        'plots': result.get('plots', [])
     })
+
+@app.route('/api/interrupt_kernel', methods=['POST'])
+def interrupt_kernel():
+    global kernel_process
+    if kernel_process and kernel_process.is_alive():
+        try:
+            os.kill(kernel_process.pid, signal.SIGINT)
+            return jsonify({'success': True, 'message': '中断信号已发送 (Interrupt signal sent)'})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)})
+    return jsonify({'success': False, 'message': 'Kernel is not running'})
 
 
 @app.route('/api/get_config', methods=['GET'])
@@ -386,8 +511,9 @@ def lint_cell():
     NameFinder().visit(root)
     
     # Check loaded names against local definition and kernel namespace
+    cached_var_names = set(v['name'] for v in cached_variables)
     for name in loaded_names:
-        if name not in defined_names and name not in kernel_namespace:
+        if name not in defined_names and name not in cached_var_names:
             class NameLocator(ast.NodeVisitor):
                 def visit_Name(self, node):
                     if node.id == name and isinstance(node.ctx, ast.Load):
@@ -406,36 +532,190 @@ def lint_cell():
 
 @app.route('/api/get_variables', methods=['GET'])
 def get_variables():
-    vars_list = []
-    for k, v in kernel_namespace.items():
-        if k.startswith('_') or k in ['__builtins__', 'sys', 'io', 'time', 'base64', 'traceback', 'threading', 'random', 'requests', 'matplotlib', 'plt', 'np', 'numpy']:
-            continue
-        v_type = type(v).__name__
-        v_repr = ""
-        shape = None
-        
-        try:
-            if hasattr(v, 'shape'):
-                shape = str(list(v.shape)) if hasattr(v.shape, '__iter__') else str(v.shape)
-            
-            if hasattr(v, '__len__') and not isinstance(v, (str, bytes)):
-                v_repr = f"{v_type} (len={len(v)})"
-            else:
-                v_repr = repr(v)
-                if len(v_repr) > 100:
-                    v_repr = v_repr[:100] + "..."
-        except Exception:
-            v_repr = "<Unable to display>"
-            
-        vars_list.append({
-            'name': k,
-            'type': v_type,
-            'repr': v_repr,
-            'shape': shape
+    return jsonify(cached_variables)
+
+
+import json
+
+WORKSPACE_DIR = os.path.abspath('.')
+
+def is_safe_path(path):
+    target_path = os.path.abspath(os.path.join(WORKSPACE_DIR, path))
+    return target_path.startswith(WORKSPACE_DIR)
+
+@app.route('/api/files/list', methods=['GET'])
+def list_files():
+    try:
+        files = []
+        for f in os.listdir(WORKSPACE_DIR):
+            if f.endswith('.ipynb') and os.path.isfile(os.path.join(WORKSPACE_DIR, f)):
+                files.append(f)
+        files.sort()
+        return jsonify({
+            'success': True,
+            'files': files
         })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/files/read', methods=['GET'])
+def read_file():
+    filename = request.args.get('filename', '')
+    if not filename:
+        return jsonify({'success': False, 'message': 'Missing filename'}), 400
+    
+    if not filename.endswith('.ipynb') or not is_safe_path(filename):
+        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
         
-    vars_list.sort(key=lambda x: x['name'])
-    return jsonify(vars_list)
+    filepath = os.path.join(WORKSPACE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'success': False, 'message': 'File not found'}), 404
+        
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = json.load(f)
+        return jsonify({
+            'success': True,
+            'content': content
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/files/save', methods=['POST'])
+def save_file():
+    data = request.json or {}
+    filename = data.get('filename', '')
+    content = data.get('content')
+    
+    if not filename or content is None:
+        return jsonify({'success': False, 'message': 'Missing filename or content'}), 400
+        
+    if not filename.endswith('.ipynb') or not is_safe_path(filename):
+        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
+        
+    filepath = os.path.join(WORKSPACE_DIR, filename)
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(content, f, indent=2, ensure_ascii=False)
+        return jsonify({
+            'success': True,
+            'message': 'Saved successfully'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/files/create', methods=['POST'])
+def create_file():
+    base_name = 'Untitled'
+    ext = '.ipynb'
+    filename = f"{base_name}{ext}"
+    counter = 1
+    while os.path.exists(os.path.join(WORKSPACE_DIR, filename)):
+        filename = f"{base_name}{counter}{ext}"
+        counter += 1
+        
+    filepath = os.path.join(WORKSPACE_DIR, filename)
+    
+    default_notebook = {
+        "cells": [],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3 (天数智芯 BI-150)",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "name": "python"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 2
+    }
+    
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(default_notebook, f, indent=2, ensure_ascii=False)
+        return jsonify({
+            'success': True,
+            'filename': filename
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/files/rename', methods=['POST'])
+def rename_file():
+    data = request.json or {}
+    old_name = data.get('old_name', '')
+    new_name = data.get('new_name', '')
+    
+    if not old_name or not new_name:
+        return jsonify({'success': False, 'message': 'Missing filenames'}), 400
+        
+    if not old_name.endswith('.ipynb') or not new_name.endswith('.ipynb'):
+        return jsonify({'success': False, 'message': 'Invalid filename format'}), 400
+        
+    if not is_safe_path(old_name) or not is_safe_path(new_name):
+        return jsonify({'success': False, 'message': 'Path traversal detected'}), 400
+        
+    old_path = os.path.join(WORKSPACE_DIR, old_name)
+    new_path = os.path.join(WORKSPACE_DIR, new_name)
+    
+    if not os.path.exists(old_path):
+        return jsonify({'success': False, 'message': 'Source file not found'}), 404
+        
+    if os.path.exists(new_path):
+        return jsonify({'success': False, 'message': 'Target file already exists'}), 400
+        
+    try:
+        os.rename(old_path, new_path)
+        return jsonify({
+            'success': True,
+            'message': 'Renamed successfully'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/files/delete', methods=['POST'])
+def delete_file_api():
+    data = request.json or {}
+    filename = data.get('filename', '')
+    
+    if not filename:
+        return jsonify({'success': False, 'message': 'Missing filename'}), 400
+        
+    if not filename.endswith('.ipynb') or not is_safe_path(filename):
+        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
+        
+    filepath = os.path.join(WORKSPACE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'success': False, 'message': 'File not found'}), 404
+        
+    try:
+        os.remove(filepath)
+        return jsonify({
+            'success': True,
+            'message': 'Deleted successfully'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
 
 if __name__ == '__main__':
