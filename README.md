@@ -1,6 +1,6 @@
 # Iluvatar AI Notebook · 天数智芯智能笔记本
 
-> 面向国产 AI 芯片（天数智芯 Iluvatar BI-150）的 AI 辅助 Notebook 开发环境，融合交互式编程与 AI Copilot 能力，在浏览器中即可完成 Python 开发、数据可视化和智能辅助编码。
+> 面向国产 AI 芯片（天数智芯 Iluvatar）的 AI 辅助 Notebook 开发环境，融合交互式编程与 AI Copilot 能力，在浏览器中即可完成 Python 开发、数据可视化和智能辅助编码。
 
 ---
 
@@ -11,7 +11,7 @@
 - **子进程 Python 内核** — 独立进程执行用户代码，持久化全局命名空间，支持 `!shell` 命令
 - **实时代码检查** — 静态分析代码单元，检测语法错误和未定义变量
 - **变量查看器** — 实时展示内核命名空间中所有用户定义的变量及类型信息
-- **实时 GPU 遥测** — 顶部仪表板实时展示 Iluvatar BI-150 的使用率、显存、温度、功耗等关键指标
+- **实时 GPU 遥测** — 顶部仪表板实时展示天数智芯 GPU 的使用率、显存、温度、功耗等关键指标（通过 pynvml 获取真实硬件数据）
 - **AI Copilot** — 代码单元内嵌 AI 输入框，一键生成代码；运行错误时可一键 AI 诊断
 - **AI Chat 助手** — 右侧对话面板支持流式输出，可选择携带 Notebook 全部上下文
 - **暗色/亮色主题** — 一键切换，适配不同使用场景
@@ -61,7 +61,7 @@
 ### 安装依赖
 
 ```bash
-pip install flask matplotlib requests
+pip install flask matplotlib requests pynvml
 ```
 
 ### 配置（可选）

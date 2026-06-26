@@ -33,6 +33,7 @@ app = Flask(__name__, static_folder='static')
 
 import multiprocessing as mp
 import signal
+import atexit
 
 # Subprocess kernel variables
 cmd_queue = None
@@ -208,61 +209,66 @@ def ensure_kernel():
         kernel_process = mp.Process(target=kernel_worker, args=(cmd_queue, res_queue), daemon=True)
         kernel_process.start()
 
-# Real-time mock telemetry for Iluvatar (天数智芯) BI-150 GPU
-gpu_state = {
-    'name': 'Iluvatar BI-150 (天数智芯)',
-    'vram_total': 32768,  # MB
-    'vram_used': 3520,    # MB
-    'utilization': 2.0,   # %
-    'temperature': 45.0,  # °C
-    'power_draw': 42.0,   # W
-    'core_clock': 1350,   # MHz
-    'memory_clock': 1000, # MHz
-    'status': 'Idle'
-}
-
-# Thread to slowly decay GPU load back to idle
-def gpu_decay_loop():
-    global gpu_state
-    while True:
-        time.sleep(1)
-        # Decay utilization
-        if gpu_state['utilization'] > 5.0:
-            gpu_state['utilization'] -= (gpu_state['utilization'] - 2.0) * 0.15
-        else:
-            gpu_state['utilization'] = max(1.0, gpu_state['utilization'] + random.uniform(-0.5, 0.5))
-
-        # Decay VRAM
-        target_vram = 3520 + (gpu_state['utilization'] - 2.0) * 80
-        if gpu_state['vram_used'] > target_vram:
-            gpu_state['vram_used'] -= (gpu_state['vram_used'] - target_vram) * 0.1
-        else:
-            gpu_state['vram_used'] += (target_vram - gpu_state['vram_used']) * 0.1
+# Real GPU telemetry using pynvml for Iluvatar (天数智芯) MR-V100 GPU
+def get_real_gpu_state():
+    try:
+        import pynvml
+        if not hasattr(pynvml, '_nvml_inited'):
+            pynvml.nvmlInit()
+            pynvml._nvml_inited = True
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         
-        # Clamp VRAM used
-        gpu_state['vram_used'] = max(2000, min(gpu_state['vram_total'], int(gpu_state['vram_used'])))
-
-        # Decay temperature
-        target_temp = 42.0 + (gpu_state['utilization'] * 0.35)
-        gpu_state['temperature'] += (target_temp - gpu_state['temperature']) * 0.1
-        gpu_state['temperature'] = round(gpu_state['temperature'], 1)
-
-        # Decay power draw
-        target_power = 38.0 + (gpu_state['utilization'] * 2.2)
-        gpu_state['power_draw'] += (target_power - gpu_state['power_draw']) * 0.15
-        gpu_state['power_draw'] = round(gpu_state['power_draw'], 1)
-
-        # Set status based on utilization
-        if gpu_state['utilization'] > 50:
-            gpu_state['status'] = 'Training / Computing'
-        elif gpu_state['utilization'] > 15:
-            gpu_state['status'] = 'Inference Active'
+        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        vram_total = mem_info.total // (1024 * 1024)
+        vram_used = mem_info.used // (1024 * 1024)
+        
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        utilization = float(util.gpu)
+        
+        temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+        
+        try:
+            power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+        except:
+            power = 0.0
+        
+        try:
+            core_clock = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_SM)
+            mem_clock = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_MEM)
+        except:
+            core_clock = 0
+            mem_clock = 0
+        
+        if utilization > 50:
+            status = 'Training / Computing'
+        elif utilization > 15:
+            status = 'Inference Active'
         else:
-            gpu_state['status'] = 'Idle'
-
-# Start the background decay thread
-decay_thread = threading.Thread(target=gpu_decay_loop, daemon=True)
-decay_thread.start()
+            status = 'Idle'
+        
+        return {
+            'name': 'Iluvatar MR-V100',
+            'vram_total': vram_total,
+            'vram_used': vram_used,
+            'utilization': utilization,
+            'temperature': float(temp),
+            'power_draw': round(power, 1),
+            'core_clock': core_clock,
+            'memory_clock': mem_clock,
+            'status': status
+        }
+    except Exception as e:
+        return {
+            'name': 'Iluvatar MR-V100',
+            'vram_total': 32768,
+            'vram_used': 0,
+            'utilization': 0.0,
+            'temperature': 0.0,
+            'power_draw': 0.0,
+            'core_clock': 0,
+            'memory_clock': 0,
+            'status': f'Error: {str(e)}'
+        }
 
 
 @app.route('/')
@@ -277,42 +283,22 @@ def serve_static(path):
 
 @app.route('/api/gpu_status', methods=['GET'])
 def get_gpu_status():
-    # Add a tiny bit of random jitter to parameters to feel alive
-    util_jitter = max(0.0, min(100.0, gpu_state['utilization'] + random.uniform(-1.0, 1.0)))
-    temp_jitter = round(max(35.0, min(95.0, gpu_state['temperature'] + random.uniform(-0.2, 0.2))), 1)
-    power_jitter = round(max(30.0, min(300.0, gpu_state['power_draw'] + random.uniform(-1.5, 1.5))), 1)
+    gpu_state = get_real_gpu_state()
     
     return jsonify({
         **gpu_state,
-        'utilization': round(util_jitter, 1),
-        'temperature': temp_jitter,
-        'power_draw': power_jitter
+        'utilization': round(gpu_state['utilization'], 1),
+        'temperature': round(gpu_state['temperature'], 1),
+        'power_draw': gpu_state['power_draw']
     })
 
 
 @app.route('/api/run_cell', methods=['POST'])
 def run_cell():
-    global gpu_state, cached_variables
+    global cached_variables
     data = request.json or {}
     code = data.get('code', '')
     
-    # Analyze code to simulate GPU load spikes for deep learning code
-    code_lower = code.lower()
-    is_dl_task = any(kw in code_lower for kw in ['torch', 'nn.module', 'tensor', 'cuda', 'device', 'train', 'fit', 'model', 'epochs'])
-    
-    if is_dl_task:
-        # Spike the GPU stats instantly
-        gpu_state['utilization'] = random.uniform(82.0, 96.0)
-        gpu_state['vram_used'] = min(gpu_state['vram_total'], gpu_state['vram_used'] + random.randint(8000, 15000))
-        gpu_state['temperature'] = min(85.0, gpu_state['temperature'] + 12.0)
-        gpu_state['power_draw'] = random.uniform(190.0, 240.0)
-        gpu_state['status'] = 'Computing (天数智芯 BI-150)'
-    else:
-        # Minor load spike for general code execution
-        gpu_state['utilization'] = max(gpu_state['utilization'], random.uniform(12.0, 25.0))
-        gpu_state['power_draw'] = max(gpu_state['power_draw'], random.uniform(70.0, 95.0))
-        gpu_state['status'] = 'Active'
-        
     start_time = time.time()
     
     ensure_kernel()
@@ -417,6 +403,7 @@ def ai_call():
                     'error': True,
                     'message': f"API returned status code {response.status_code}: {response.text}"
                 }), response.status_code
+    except Exception as e:
         return jsonify({
             'error': True,
             'message': f"Failed to connect to the custom API server: {str(e)}"
@@ -721,5 +708,16 @@ def delete_file_api():
 if __name__ == '__main__':
     # Ensure static folder exists
     os.makedirs(app.static_folder, exist_ok=True)
+    
+    # Register pynvml cleanup on exit
+    def cleanup_gpu():
+        try:
+            import pynvml
+            if hasattr(pynvml, '_nvml_inited'):
+                pynvml.nvmlShutdown()
+        except:
+            pass
+    atexit.register(cleanup_gpu)
+    
     port = int(os.environ.get('OPENI_SELF_PORT', 5000))
     app.run(host='0.0.0.0', port=port)
