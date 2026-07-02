@@ -284,7 +284,7 @@ button, [role="button"] {
     flex-shrink: 0;
     height: 100%;
     z-index: 6;
-    transition: var(--transition-smooth);
+    transition: width 0.15s ease, var(--transition-smooth);
     position: relative;
 }
 
@@ -1096,7 +1096,7 @@ button, [role="button"] {
     flex-direction: column;
     height: 100%;
     z-index: 6;
-    transition: var(--transition-smooth);
+    transition: width 0.15s ease, var(--transition-smooth);
     flex-shrink: 0;
 }
 
@@ -1699,7 +1699,7 @@ button, [role="button"] {
     overflow: hidden;
     box-shadow: var(--shadow-premium);
     transform: translateY(20px);
-    transition: var(--transition-smooth);
+    transition: transform 0.15s ease, var(--transition-smooth);
 }
 
 .modal-overlay.open .modal-card {
