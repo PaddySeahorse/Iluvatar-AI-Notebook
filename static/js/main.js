@@ -592,6 +592,12 @@ function setupEventListeners() {
         } else {
             icon.className = 'fa-solid fa-moon';
         }
+
+        // Update theme-color meta tag
+        const themeColorMeta = document.getElementById('themeColorMeta');
+        if (themeColorMeta) {
+            themeColorMeta.content = isDark ? '#000000' : '#ffffff';
+        }
         
         // Update CodeMirror editor themes dynamically
         const cmTheme = isDark ? 'dracula' : 'neo';

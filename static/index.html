@@ -47,15 +47,15 @@
                 <div class="progress-bar-container">
                     <div class="progress-bar" id="gpuVramBar" style="--progress: 0.107"></div>
                 </div>
-                <span class="stat-value" id="gpuVramVal">3520MB / 32GB</span>
+                <span class="stat-value" id="gpuVramVal">3520&nbsp;MB / 32&nbsp;GB</span>
             </div>
             <div class="stat-item hide-mobile">
                 <span class="stat-label">功耗</span>
-                <span class="stat-value" id="gpuPowerVal">42.0 W</span>
+                <span class="stat-value" id="gpuPowerVal">42.0&nbsp;W</span>
             </div>
             <div class="stat-item hide-mobile">
                 <span class="stat-label">温度</span>
-                <span class="stat-value" id="gpuTempVal">45.0°C</span>
+                <span class="stat-value" id="gpuTempVal">45.0&nbsp;°C</span>
             </div>
         </div>
 
@@ -97,7 +97,7 @@
         <section class="notebook-container" id="main-content">
             <div class="notebook-header">
                 <div class="notebook-title-section">
-                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb" aria-label="笔记本文件名" spellcheck="false">
+                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb" aria-label="笔记本文件名" spellcheck="false" name="notebook-title" autocomplete="off">
                     <span class="notebook-meta">天数智芯国产算力加速中</span>
                 </div>
                 <div class="notebook-actions">
@@ -240,14 +240,14 @@
 
                 <div class="form-group">
                     <label for="apiUrlInput">API URL 端点</label>
-                    <input type="url" id="apiUrlInput" placeholder="https://token.openi.org.cn/v1/chat/completions" spellcheck="false">
+                    <input type="url" id="apiUrlInput" placeholder="https://token.openi.org.cn/v1/chat/completions" spellcheck="false" name="api-url" autocomplete="off">
                     <small>OpenAI 兼容的 completions 路径</small>
                 </div>
 
                 <div class="form-group">
                     <label for="apiTokenInput">API Access Token (Bearer Token)</label>
                     <div class="password-input-wrapper">
-                        <input type="password" id="apiTokenInput" placeholder="sk-…" spellcheck="false">
+                        <input type="password" id="apiTokenInput" placeholder="sk-…" spellcheck="false" name="api-token" autocomplete="off">
                         <button id="toggleTokenVisibility" type="button" class="eye-btn" aria-label="显示/隐藏密码">
                             <i class="fa-solid fa-eye" aria-hidden="true"></i>
                         </button>
@@ -257,7 +257,7 @@
 
                 <div class="form-group">
                     <label for="modelInput">模型名称 (Model Name)</label>
-                    <input type="text" id="modelInput" placeholder="dsv4" spellcheck="false">
+                    <input type="text" id="modelInput" placeholder="dsv4" spellcheck="false" name="model-name" autocomplete="off">
                     <small>请求中携带的 model 字段，例如：dsv4</small>
                 </div>
             </div>
