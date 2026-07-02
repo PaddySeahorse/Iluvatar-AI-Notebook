@@ -167,7 +167,6 @@ export function exportNotebookAsIpynb() {
                         });
                     });
                 }
-            }
 
             return {
                 cell_type: 'code',
