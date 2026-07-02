@@ -914,10 +914,53 @@ function setKernelStatus(statusClass, text) {
 }
 
 // Real-time GPU Telemetry updates
+let gpuUnavailable = false;
+let gpuFetchFailCount = 0;
+
+function showGpuUnavailable() {
+    gpuUnavailable = true;
+    const utilBar = document.getElementById('gpuUtilBar');
+    const utilVal = document.getElementById('gpuUtilVal');
+    const vramBar = document.getElementById('gpuVramBar');
+    const vramVal = document.getElementById('gpuVramVal');
+    const powerVal = document.getElementById('gpuPowerVal');
+    const tempVal = document.getElementById('gpuTempVal');
+
+    if (utilBar) utilBar.style.setProperty('--progress', '0');
+    if (utilVal) utilVal.innerText = '—';
+    if (vramBar) vramBar.style.setProperty('--progress', '0');
+    if (vramVal) vramVal.innerText = '未连接';
+    if (powerVal) powerVal.innerText = '—';
+    if (tempVal) tempVal.innerText = '—';
+
+    if (state.isGpuModalOpen) {
+        const modalTemp = document.getElementById('gpuModalTemp');
+        const modalPower = document.getElementById('gpuModalPower');
+        const modalStatus = document.getElementById('gpuModalStatus');
+        const modalVramUsed = document.getElementById('gpuModalVramUsed');
+        const modalVramBar = document.getElementById('gpuModalVramBar');
+
+        if (modalTemp) modalTemp.innerText = '—';
+        if (modalPower) modalPower.innerText = '—';
+        if (modalStatus) modalStatus.innerText = '未检测到 GPU 设备';
+        if (modalVramUsed) modalVramUsed.innerText = '—';
+        if (modalVramBar) modalVramBar.style.setProperty('--progress', '0');
+    }
+}
+
 function startGpuTelemetry() {
     setInterval(() => {
+        if (gpuUnavailable) return;
         fetchGpuStatus()
             .then(data => {
+                gpuFetchFailCount = 0;
+
+                // Backend may return an error status when GPU hardware is absent
+                if (data.status && data.status.startsWith('Error')) {
+                    showGpuUnavailable();
+                    return;
+                }
+
                 // Update Top mini dashboard
                 const utilBar = document.getElementById('gpuUtilBar');
                 const utilVal = document.getElementById('gpuUtilVal');
@@ -928,11 +971,11 @@ function startGpuTelemetry() {
 
                 if (utilBar) utilBar.style.setProperty('--progress', (data.utilization / 100).toString());
                 if (utilVal) utilVal.innerText = `${data.utilization}%`;
-                
-                const vramPercent = (data.vram_used / data.vram_total) * 100;
+
+                const vramPercent = data.vram_total > 0 ? (data.vram_used / data.vram_total) * 100 : 0;
                 if (vramBar) vramBar.style.setProperty('--progress', (vramPercent / 100).toString());
                 if (vramVal) vramVal.innerText = `${data.vram_used}MB / ${Math.round(data.vram_total / 1024)}GB`;
-                
+
                 if (powerVal) powerVal.innerText = `${data.power_draw} W`;
                 if (tempVal) tempVal.innerText = `${data.temperature}°C`;
 
@@ -951,7 +994,14 @@ function startGpuTelemetry() {
                     if (modalVramBar) modalVramBar.style.setProperty('--progress', (vramPercent / 100).toString());
                 }
             })
-            .catch(err => console.error("GPU Telemetry fetch failed:", err));
+            .catch(err => {
+                gpuFetchFailCount++;
+                console.error("GPU Telemetry fetch failed:", err);
+                // After 3 consecutive failures, mark GPU as unavailable
+                if (gpuFetchFailCount >= 3) {
+                    showGpuUnavailable();
+                }
+            });
     }, 1500);
 }
 

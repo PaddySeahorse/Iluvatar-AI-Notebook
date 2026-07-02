@@ -38,24 +38,24 @@
             <div class="stat-item">
                 <span class="stat-label">GPU 使用率</span>
                 <div class="progress-bar-container">
-                    <div class="progress-bar" id="gpuUtilBar" style="--progress: 0.02"></div>
+                    <div class="progress-bar" id="gpuUtilBar" style="--progress: 0"></div>
                 </div>
-                <span class="stat-value" id="gpuUtilVal">2.0%</span>
+                <span class="stat-value" id="gpuUtilVal">连接中…</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">显存 (VRAM)</span>
                 <div class="progress-bar-container">
-                    <div class="progress-bar" id="gpuVramBar" style="--progress: 0.107"></div>
+                    <div class="progress-bar" id="gpuVramBar" style="--progress: 0"></div>
                 </div>
-                <span class="stat-value" id="gpuVramVal">3520&nbsp;MB / 32&nbsp;GB</span>
+                <span class="stat-value" id="gpuVramVal">连接中…</span>
             </div>
             <div class="stat-item hide-mobile">
                 <span class="stat-label">功耗</span>
-                <span class="stat-value" id="gpuPowerVal">42.0&nbsp;W</span>
+                <span class="stat-value" id="gpuPowerVal">—</span>
             </div>
             <div class="stat-item hide-mobile">
                 <span class="stat-label">温度</span>
-                <span class="stat-value" id="gpuTempVal">45.0&nbsp;°C</span>
+                <span class="stat-value" id="gpuTempVal">—</span>
             </div>
         </div>
 
@@ -284,17 +284,17 @@
                     </div>
                     <div class="gpu-stat-box">
                         <div class="gpu-stat-title">GPU 核心温度</div>
-                        <div class="gpu-stat-large-val" id="gpuModalTemp">45.0°C</div>
+                        <div class="gpu-stat-large-val" id="gpuModalTemp">—</div>
                         <div class="gpu-stat-sub">最大限制温度: 85.0°C</div>
                     </div>
                     <div class="gpu-stat-box">
                         <div class="gpu-stat-title">即时功耗 (TDP)</div>
-                        <div class="gpu-stat-large-val" id="gpuModalPower">42.0 W</div>
+                        <div class="gpu-stat-large-val" id="gpuModalPower">—</div>
                         <div class="gpu-stat-sub">最大设计功耗: 250 W</div>
                     </div>
                     <div class="gpu-stat-box">
                         <div class="gpu-stat-title">当前状态</div>
-                        <div class="gpu-stat-large-val color-accent" id="gpuModalStatus">Idle</div>
+                        <div class="gpu-stat-large-val color-accent" id="gpuModalStatus">连接中…</div>
                         <div class="gpu-stat-sub">核心运行时状态</div>
                     </div>
                 </div>
@@ -303,10 +303,10 @@
                     <h3 class="section-title">计算显存配置 (VRAM)</h3>
                     <div class="gpu-vram-detail-wrapper">
                         <div class="gpu-vram-text">
-                            <span id="gpuModalVramUsed">3520 MB</span> / <span>32768 MB (32GB HBM2)</span>
+                            <span id="gpuModalVramUsed">—</span> / <span>32768 MB (32GB HBM2)</span>
                         </div>
                         <div class="vram-bar-full">
-                            <div class="vram-bar-used" id="gpuModalVramBar" style="--progress: 0.107"></div>
+                            <div class="vram-bar-used" id="gpuModalVramBar" style="--progress: 0"></div>
                         </div>
                         <div class="vram-subtext">显存带宽: 1.2 TB/s | 显存类型: HBM2 极速显存</div>
                     </div>
