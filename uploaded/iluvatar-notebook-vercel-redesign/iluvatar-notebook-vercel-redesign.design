@@ -1,0 +1,45 @@
+{
+  "data": [
+    {
+      "id": "page-notebook-main",
+      "type": "page",
+      "title": "Notebook 主界面（深色）",
+      "version": 1,
+      "createdAt": 1751328000000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/notebook-main.html"
+      }
+    },
+    {
+      "id": "page-notebook-light",
+      "type": "page",
+      "title": "Notebook 主界面（浅色）",
+      "version": 1,
+      "createdAt": 1751328001000,
+      "canvasData": {
+        "x": 620,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/notebook-light.html"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "Iluvatar AI Notebook — Vercel 极简重设计",
+    "designLibrary": null,
+    "showEdge": false,
+    "windowSize": {
+      "width": 800,
+      "height": 600
+    }
+  }
+}
