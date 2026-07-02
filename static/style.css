@@ -270,7 +270,7 @@ button, [role="button"] {
     flex: 1;
     overflow: hidden;
     position: relative;
-    height: calc(100vh - 52px);
+    height: calc(100dvh - 52px);
 }
 
 /* Left File Sidebar */
@@ -412,7 +412,13 @@ button, [role="button"] {
     color: var(--text-muted);
     cursor: pointer;
     font-size: 13px;
-    padding: 2px;
+    padding: 4px;
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
     transition: var(--transition-smooth);
 }
 
@@ -471,6 +477,7 @@ button, [role="button"] {
     min-width: 0;
     background: var(--bg-main);
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 0;
     position: relative;
 }
@@ -521,9 +528,7 @@ button, [role="button"] {
     white-space: nowrap;
 }
 
-.notebook-meta::before {
-    content: none;
-}
+
 
 .notebook-actions {
     display: flex;
@@ -1020,7 +1025,7 @@ button, [role="button"] {
     font-size: 14px;
     line-height: 1.7;
     color: var(--text-primary);
-    cursor: double-click;
+    cursor: text;
     min-height: 48px;
 }
 
@@ -1690,7 +1695,7 @@ button, [role="button"] {
 .modal-card {
     width: 520px;
     max-width: 90%;
-    max-height: 80vh;
+    max-height: 80dvh;
     background: var(--bg-surface);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -1788,7 +1793,6 @@ button, [role="button"] {
     background: var(--bg-surface-elevated);
     color: var(--text-primary);
     font-size: 13px;
-    outline: none;
     transition: var(--transition-smooth);
     font-family: inherit;
 }

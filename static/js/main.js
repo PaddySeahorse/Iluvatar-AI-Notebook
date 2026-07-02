@@ -163,7 +163,7 @@ function addInitialCells() {
 import numpy as np
 import matplotlib.pyplot as plt
 
-print("正在初始化天数智芯 BI-150 运算环境...")
+print("正在初始化天数智芯 BI-150 运算环境…")
 x = np.linspace(0, 10, 100)
 y = np.sin(x) * np.exp(-x/3)
 
@@ -649,9 +649,17 @@ function setupEventListeners() {
 
     // GPU Status Modal
     const gpuModal = document.getElementById('gpuModal');
-    document.getElementById('gpuDashboard').addEventListener('click', () => {
+    const gpuDashboard = document.getElementById('gpuDashboard');
+    gpuDashboard.addEventListener('click', () => {
         gpuModal.classList.add('open');
         state.isGpuModalOpen = true;
+    });
+    gpuDashboard.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            gpuModal.classList.add('open');
+            state.isGpuModalOpen = true;
+        }
     });
     document.getElementById('closeGpuBtn').addEventListener('click', () => {
         gpuModal.classList.remove('open');
@@ -863,7 +871,7 @@ function runCell(id) {
     triggerRender();
     
     // Update top header status indicator
-    setKernelStatus('busy', '正在执行 Python 代码...');
+    setKernelStatus('busy', '正在执行 Python 代码…');
 
     runCellOnBackend(cell.content)
     .then(data => {
@@ -953,7 +961,7 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     if (!cell) return;
 
     const originalText = buttonElement.innerText;
-    buttonElement.innerText = "生成中...";
+    buttonElement.innerText = "生成中…";
     buttonElement.disabled = true;
 
     // Initialize the suggestion structure
@@ -1073,7 +1081,7 @@ async function runCellDebug(id, buttonElement) {
     if (!cell || !cell.output || !cell.output.stderr) return;
 
     const originalText = buttonElement.innerHTML;
-    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block"></i> 诊断中...';
+    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block"></i> 诊断中…';
     buttonElement.disabled = true;
 
     const messages = [
@@ -1108,7 +1116,7 @@ async function runCellDebug(id, buttonElement) {
     loaderMsg.innerHTML = `
         <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候…</span>
         </div>
     `;
     if (chatHistory) {
@@ -1195,7 +1203,7 @@ async function sendChatMessage() {
     loaderMsg.innerHTML = `
         <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候…</span>
         </div>
     `;
     if (chatHistory) {
@@ -1488,7 +1496,7 @@ async function runCellExplain(id) {
     loaderMsg.innerHTML = `
         <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 正在分析代码，请稍候...</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 正在分析代码，请稍候…</span>
         </div>
     `;
     if (chatHistory) {

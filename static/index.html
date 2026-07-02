@@ -25,16 +25,16 @@
         <div class="nav-left">
             <div class="logo">
                 <i class="fa-solid fa-microchip logo-icon" aria-hidden="true"></i>
-                <h1 class="logo-text">Iluvatar <span class="accent-text">AI Notebook</span></h1>
+                <h1 class="logo-text"><span translate="no">Iluvatar</span> <span class="accent-text" translate="no">AI Notebook</span></h1>
             </div>
             <div class="kernel-status">
                 <span class="status-dot online"></span>
-                <span class="status-text">Python 3 (天数智芯 BI-150)</span>
+                <span class="status-text">Python 3 (天数智芯 <span translate="no">BI-150</span>)</span>
             </div>
         </div>
         
         <!-- Live GPU Stats Header -->
-        <div class="gpu-mini-dashboard" id="gpuDashboard" title="点击查看国产算力详情">
+        <div class="gpu-mini-dashboard" id="gpuDashboard" title="点击查看国产算力详情" role="button" tabindex="0" aria-label="查看国产算力详情">
             <div class="stat-item">
                 <span class="stat-label">GPU 使用率</span>
                 <div class="progress-bar-container">
@@ -97,7 +97,7 @@
         <section class="notebook-container" id="main-content">
             <div class="notebook-header">
                 <div class="notebook-title-section">
-                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb" aria-label="笔记本文件名" spellcheck="false" name="notebook-title" autocomplete="off">
+                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb" aria-label="笔记本文件名" spellcheck="false" name="notebook-title" autocomplete="off" translate="no">
                     <span class="notebook-meta">天数智芯国产算力加速中</span>
                 </div>
                 <div class="notebook-actions">
@@ -279,8 +279,8 @@
                 <div class="gpu-grid">
                     <div class="gpu-stat-box">
                         <div class="gpu-stat-title">芯片架构</div>
-                        <div class="gpu-stat-large-val">BI-150 / MR-100</div>
-                        <div class="gpu-stat-sub">天数智芯 (Iluvatar Corex)</div>
+                        <div class="gpu-stat-large-val"><span translate="no">BI-150 / MR-100</span></div>
+                        <div class="gpu-stat-sub">天数智芯 (<span translate="no">Iluvatar Corex</span>)</div>
                     </div>
                     <div class="gpu-stat-box">
                         <div class="gpu-stat-title">GPU 核心温度</div>
@@ -331,7 +331,7 @@
                             <td>PCIe 接口协议</td>
                             <td>Gen4 x16</td>
                             <td>驱动版本</td>
-                            <td>Iluvatar SDK v2.8.0</td>
+                            <td><span translate="no">Iluvatar SDK v2.8.0</span></td>
                         </tr>
                     </table>
                 </div>
