@@ -636,7 +636,7 @@ function setupEventListeners() {
             .then(res => res.json())
             .then(data => {
                 document.getElementById('apiUrlInput').value = data.default_url;
-                document.getElementById('apiTokenInput').value = data.default_token;
+                document.getElementById('apiTokenInput').value = '';
                 document.getElementById('modelInput').value = data.default_model;
             });
     });

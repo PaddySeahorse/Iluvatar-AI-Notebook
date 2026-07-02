@@ -37,7 +37,21 @@
 
 ```
 .
-├── app.py              # Flask 后端服务（代码执行、文件管理、AI 代理、GPU 遥测）
+├── app.py              # 入口点：配置加载、运行时状态、Blueprint 装配与启动
+├── core/               # 后端核心逻辑（模块化，ISSUE-007）
+│   ├── __init__.py
+│   ├── errors.py       # 自定义异常层次（AppError / KernelError / FileStorageError / UpstreamAPIError）
+│   ├── kernel.py       # KernelManager 内核管理 + kernel_worker 子进程执行器
+│   ├── gpu.py          # pynvml GPU 遥测
+│   ├── utils.py        # 通用工具（is_safe_path 路径校验）
+│   └── routes/         # Flask Blueprint 路由层
+│       ├── __init__.py           # 路由与错误处理器注册
+│       ├── static_routes.py      # 静态资源与首页
+│       ├── gpu_routes.py         # GPU 状态
+│       ├── kernel_routes.py      # 代码执行 / 中断 / 内核状态 / 变量
+│       ├── ai_routes.py          # API 配置与 AI 代理调用
+│       ├── lint_routes.py        # 静态代码检查
+│       └── file_routes.py        # Notebook 文件管理
 ├── static/
 │   ├── index.html      # 前端主页面
 │   ├── style.css       # 样式表
@@ -46,6 +60,8 @@
 │       ├── state.js    # 状态管理
 │       ├── renderer.js # UI 渲染逻辑
 │       └── main.js     # 主入口与事件绑定
+├── tests/
+│   └── test_app.py     # pytest 测试套件
 └── README.md
 ```
 
@@ -61,7 +77,7 @@
 ### 安装依赖
 
 ```bash
-pip install flask matplotlib requests pynvml
+pip install flask flask-cors matplotlib requests pynvml pytest
 ```
 
 ### 配置（可选）
@@ -76,6 +92,12 @@ OPENI_API_MODEL=dsv4
 
 也可以在启动后通过 UI 设置面板配置。
 
+如需限制跨域来源，可额外配置：
+
+```env
+ALLOWED_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
+```
+
 ### 启动
 
 ```bash
@@ -83,6 +105,12 @@ python app.py
 ```
 
 访问 `http://127.0.0.1:5000` 即可使用。
+
+### 运行测试
+
+```bash
+pytest
+```
 
 ---
 
