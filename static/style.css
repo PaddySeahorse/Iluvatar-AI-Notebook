@@ -25,7 +25,7 @@
 
     --sidebar-width: 380px;
     --shadow-premium: 0 0 0 1px rgba(255,255,255,0.05);
-    --transition-smooth: all 0.15s ease;
+    --transition-smooth: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
 .light-theme {
@@ -48,18 +48,33 @@
     padding: 0;
 }
 
+:root {
+    color-scheme: dark;
+}
+
+html:has(body.light-theme) {
+    color-scheme: light;
+}
+
 body {
     background-color: var(--bg-main);
     color: var(--text-primary);
     font-family: var(--font-ui);
     overflow: hidden;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-tap-highlight-color: rgba(0, 112, 243, 0.2);
+}
+
+button, [role="button"] {
+    touch-action: manipulation;
 }
 
 /* Scrollbar */
@@ -122,6 +137,9 @@ body {
 
 .logo-text {
     color: var(--text-primary);
+    margin: 0;
+    font-size: inherit;
+    font-weight: inherit;
 }
 
 .accent-text {
@@ -201,7 +219,9 @@ body {
     height: 100%;
     background: var(--accent-secondary);
     border-radius: 2px;
-    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-origin: left;
+    transform: scaleX(var(--progress, 0));
+    transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .nav-right {
@@ -320,6 +340,7 @@ body {
 .file-list-container {
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px;
 }
 
@@ -368,6 +389,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     flex: 1;
+    min-width: 0;
 }
 
 .file-name i {
@@ -481,7 +503,6 @@ body {
     letter-spacing: -0.01em;
     width: 340px;
     transition: var(--transition-smooth);
-    outline: none;
     font-family: inherit;
 }
 
@@ -489,8 +510,7 @@ body {
     border-color: var(--border-color);
 }
 
-.notebook-title-input:focus {
-    outline: none;
+.notebook-title-input:focus-visible {
     border-color: var(--border-color-active);
     background: var(--bg-surface);
 }
@@ -711,7 +731,6 @@ body {
     min-height: 50px;
     background: transparent;
     border: none;
-    outline: none;
     color: var(--text-primary);
     font-family: var(--font-code);
     font-size: 13px;
@@ -748,7 +767,6 @@ body {
     flex: 1;
     background: transparent;
     border: none;
-    outline: none;
     color: var(--text-primary);
     font-size: 12px;
     font-family: inherit;
@@ -785,6 +803,7 @@ body {
     font-size: 13px;
     line-height: 1.6;
     overflow-x: auto;
+    overscroll-behavior: contain;
 }
 
 .output-stdout {
@@ -815,6 +834,8 @@ body {
     border-radius: 6px;
     border: 1px solid var(--border-color);
     background: white;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
 }
 
 /* Rich HTML output styling */
@@ -822,6 +843,7 @@ body {
     margin-top: 5px;
     margin-bottom: 8px;
     overflow-x: auto;
+    overscroll-behavior: contain;
 }
 
 .output-html table.dataframe {
@@ -1008,6 +1030,7 @@ body {
     margin-bottom: 12px;
     letter-spacing: -0.02em;
     color: var(--text-primary);
+    text-wrap: balance;
 }
 
 .markdown-rendered-view h2 {
@@ -1015,6 +1038,7 @@ body {
     font-weight: 600;
     margin: 16px 0 8px;
     letter-spacing: -0.01em;
+    text-wrap: balance;
 }
 
 .markdown-rendered-view h3 {
@@ -1022,6 +1046,7 @@ body {
     font-weight: 600;
     margin-bottom: 12px;
     color: var(--text-primary);
+    text-wrap: balance;
 }
 
 .markdown-rendered-view p {
@@ -1195,6 +1220,7 @@ body {
 .sidebar-chat-history {
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -1244,6 +1270,8 @@ body {
     line-height: 1.65;
     color: var(--text-secondary);
     flex: 1;
+    min-width: 0;
+    overflow-wrap: break-word;
 }
 
 .chat-message.user .chat-bubble {
@@ -1341,7 +1369,6 @@ body {
     flex: 1;
     background: transparent;
     border: none;
-    outline: none;
     color: var(--text-primary);
     font-family: var(--font-ui);
     font-size: 13px;
@@ -1417,6 +1444,7 @@ body {
 .sidebar-history-list {
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px;
     display: flex;
     flex-direction: column;
@@ -1519,6 +1547,7 @@ body {
     overflow-x: auto;
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .variables-table {
@@ -1650,6 +1679,7 @@ body {
     opacity: 0;
     pointer-events: none;
     transition: var(--transition-smooth);
+    overscroll-behavior: contain;
 }
 
 .modal-overlay.open {
@@ -1725,6 +1755,7 @@ body {
 .modal-body {
     padding: 20px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     flex: 1;
 }
 
@@ -1761,8 +1792,7 @@ body {
     font-family: inherit;
 }
 
-.form-group input:focus {
-    outline: none;
+.form-group input:focus-visible {
     border-color: var(--border-color-active);
     box-shadow: none;
 }
@@ -1937,6 +1967,8 @@ body {
     height: 100%;
     background: var(--accent-secondary);
     border-radius: 3px;
+    transform-origin: left;
+    transform: scaleX(var(--progress, 0));
 }
 
 .vram-subtext {
@@ -2052,6 +2084,7 @@ body {
     padding: 10px;
     border-radius: 6px;
     overflow-x: auto;
+    overscroll-behavior: contain;
     font-family: var(--font-code);
     font-size: 13px;
     color: var(--text-secondary);
@@ -2080,6 +2113,59 @@ body {
 .floating-notification.show {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
+}
+
+/* Skip Link */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--accent-secondary);
+    color: #fff;
+    padding: 8px 16px;
+    z-index: 10000;
+    border-radius: 0 0 6px 0;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+    top: 0;
+    outline: none;
+}
+
+/* Focus Visible */
+button:focus-visible,
+[role="button"]:focus-visible {
+    outline: 2px solid var(--accent-secondary);
+    outline-offset: 2px;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--accent-secondary);
+    outline-offset: 1px;
+}
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .progress-bar {
+        transition: none !important;
+    }
+
+    .floating-notification {
+        transition: none !important;
+    }
 }
 
 /* Utilities */

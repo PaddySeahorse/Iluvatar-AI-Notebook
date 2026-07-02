@@ -912,11 +912,11 @@ function startGpuTelemetry() {
                 const powerVal = document.getElementById('gpuPowerVal');
                 const tempVal = document.getElementById('gpuTempVal');
 
-                if (utilBar) utilBar.style.width = `${data.utilization}%`;
+                if (utilBar) utilBar.style.setProperty('--progress', (data.utilization / 100).toString());
                 if (utilVal) utilVal.innerText = `${data.utilization}%`;
                 
                 const vramPercent = (data.vram_used / data.vram_total) * 100;
-                if (vramBar) vramBar.style.width = `${vramPercent}%`;
+                if (vramBar) vramBar.style.setProperty('--progress', (vramPercent / 100).toString());
                 if (vramVal) vramVal.innerText = `${data.vram_used}MB / ${Math.round(data.vram_total / 1024)}GB`;
                 
                 if (powerVal) powerVal.innerText = `${data.power_draw} W`;
@@ -934,7 +934,7 @@ function startGpuTelemetry() {
                     if (modalPower) modalPower.innerText = `${data.power_draw} W`;
                     if (modalStatus) modalStatus.innerText = data.status;
                     if (modalVramUsed) modalVramUsed.innerText = `${data.vram_used} MB`;
-                    if (modalVramBar) modalVramBar.style.width = `${vramPercent}%`;
+                    if (modalVramBar) modalVramBar.style.setProperty('--progress', (vramPercent / 100).toString());
                 }
             })
             .catch(err => console.error("GPU Telemetry fetch failed:", err));

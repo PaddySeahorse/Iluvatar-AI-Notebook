@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#000000" id="themeColorMeta">
     <title>Iluvatar AI Notebook | 天数智芯智能笔记本</title>
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts: Inter and Fira Code -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <!-- CodeMirror CSS -->
@@ -17,12 +19,13 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/neo.min.css">
 </head>
 <body class="dark-theme">
+    <a href="#main-content" class="skip-link">跳转到主内容</a>
     <!-- Top Navigation Bar -->
     <header class="top-nav">
         <div class="nav-left">
             <div class="logo">
-                <i class="fa-solid fa-microchip logo-icon"></i>
-                <span class="logo-text">Iluvatar <span class="accent-text">AI Notebook</span></span>
+                <i class="fa-solid fa-microchip logo-icon" aria-hidden="true"></i>
+                <h1 class="logo-text">Iluvatar <span class="accent-text">AI Notebook</span></h1>
             </div>
             <div class="kernel-status">
                 <span class="status-dot online"></span>
@@ -35,14 +38,14 @@
             <div class="stat-item">
                 <span class="stat-label">GPU 使用率</span>
                 <div class="progress-bar-container">
-                    <div class="progress-bar" id="gpuUtilBar" style="width: 2%"></div>
+                    <div class="progress-bar" id="gpuUtilBar" style="--progress: 0.02"></div>
                 </div>
                 <span class="stat-value" id="gpuUtilVal">2.0%</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">显存 (VRAM)</span>
                 <div class="progress-bar-container">
-                    <div class="progress-bar" id="gpuVramBar" style="width: 10.7%"></div>
+                    <div class="progress-bar" id="gpuVramBar" style="--progress: 0.107"></div>
                 </div>
                 <span class="stat-value" id="gpuVramVal">3520MB / 32GB</span>
             </div>
@@ -57,11 +60,11 @@
         </div>
 
         <div class="nav-right">
-            <button id="themeToggleBtn" class="nav-btn" title="切换主题">
-                <i class="fa-solid fa-moon"></i>
+            <button id="themeToggleBtn" class="nav-btn" title="切换主题" aria-label="切换主题">
+                <i class="fa-solid fa-moon" aria-hidden="true"></i>
             </button>
             <button id="settingsBtn" class="nav-btn accent" title="云端 LLM API 配置">
-                <i class="fa-solid fa-gear"></i> 设置
+                <i class="fa-solid fa-gear" aria-hidden="true"></i> 设置
             </button>
         </div>
     </header>
@@ -71,40 +74,40 @@
         <aside class="file-sidebar" id="fileSidebar">
             <div class="file-sidebar-header">
                 <div class="file-sidebar-title">
-                    <i class="fa-solid fa-folder-open"></i>
+                    <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
                     <span>工作空间</span>
                 </div>
-                <button id="newNotebookBtn" class="new-file-btn" title="新建笔记本">
-                    <i class="fa-solid fa-file-circle-plus"></i>
+                <button id="newNotebookBtn" class="new-file-btn" title="新建笔记本" aria-label="新建笔记本">
+                    <i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i>
                 </button>
             </div>
-            
+
             <div class="file-list-container">
                 <ul class="file-list" id="fileList">
                     <!-- Dynamically populated files -->
                 </ul>
             </div>
-            
-            <button id="toggleFileSidebarBtn" class="toggle-file-sidebar-btn" title="折叠面板">
-                <i class="fa-solid fa-angles-left"></i>
+
+            <button id="toggleFileSidebarBtn" class="toggle-file-sidebar-btn" title="折叠面板" aria-label="折叠面板">
+                <i class="fa-solid fa-angles-left" aria-hidden="true"></i>
             </button>
         </aside>
 
         <!-- Notebook Left Panel (Cells List) -->
-        <section class="notebook-container">
+        <section class="notebook-container" id="main-content">
             <div class="notebook-header">
                 <div class="notebook-title-section">
-                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb">
+                    <input type="text" id="notebookTitle" class="notebook-title-input" value="Untitled_Iluvatar_Notebook.ipynb" aria-label="笔记本文件名" spellcheck="false">
                     <span class="notebook-meta">天数智芯国产算力加速中</span>
                 </div>
                 <div class="notebook-actions">
-                    <button id="interruptKernelBtn" class="action-btn error-btn" title="强制中断正在运行的代码"><i class="fa-solid fa-stop"></i> 中断执行</button>
-                    <button id="importNotebookBtn" class="action-btn secondary" title="导入 .ipynb 文件"><i class="fa-solid fa-file-import"></i> 导入</button>
-                    <button id="exportNotebookBtn" class="action-btn secondary" title="导出为 .ipynb 文件"><i class="fa-solid fa-file-export"></i> 导出</button>
+                    <button id="interruptKernelBtn" class="action-btn error-btn" title="强制中断正在运行的代码"><i class="fa-solid fa-stop" aria-hidden="true"></i> 中断执行</button>
+                    <button id="importNotebookBtn" class="action-btn secondary" title="导入 .ipynb 文件"><i class="fa-solid fa-file-import" aria-hidden="true"></i> 导入</button>
+                    <button id="exportNotebookBtn" class="action-btn secondary" title="导出为 .ipynb 文件"><i class="fa-solid fa-file-export" aria-hidden="true"></i> 导出</button>
                     <input type="file" id="importNotebookInput" accept=".ipynb" style="display: none;">
-                    <button id="addCodeBtn" class="action-btn"><i class="fa-solid fa-plus"></i> 代码单元</button>
-                    <button id="addMarkdownBtn" class="action-btn"><i class="fa-solid fa-paragraph"></i> 文本单元</button>
-                    <button id="clearAllOutputsBtn" class="action-btn secondary" title="清除所有输出"><i class="fa-solid fa-eraser"></i> 清除输出</button>
+                    <button id="addCodeBtn" class="action-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> 代码单元</button>
+                    <button id="addMarkdownBtn" class="action-btn"><i class="fa-solid fa-paragraph" aria-hidden="true"></i> 文本单元</button>
+                    <button id="clearAllOutputsBtn" class="action-btn secondary" title="清除所有输出"><i class="fa-solid fa-eraser" aria-hidden="true"></i> 清除输出</button>
                 </div>
             </div>
 
@@ -117,8 +120,8 @@
             <div class="bottom-add-bar">
                 <div class="add-bar-line"></div>
                 <div class="add-buttons">
-                    <button id="addCodeBottomBtn" class="round-add-btn"><i class="fa-solid fa-plus"></i> 代码</button>
-                    <button id="addMarkdownBottomBtn" class="round-add-btn"><i class="fa-solid fa-paragraph"></i> 文本</button>
+                    <button id="addCodeBottomBtn" class="round-add-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> 代码</button>
+                    <button id="addMarkdownBottomBtn" class="round-add-btn"><i class="fa-solid fa-paragraph" aria-hidden="true"></i> 文本</button>
                 </div>
             </div>
         </section>
@@ -127,19 +130,19 @@
         <aside class="ai-sidebar" id="aiSidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">
-                    <i class="fa-solid fa-wand-magic-sparkles ai-sparkle"></i>
+                    <i class="fa-solid fa-wand-magic-sparkles ai-sparkle" aria-hidden="true"></i>
                     <span>AI Copilot 助手</span>
                 </div>
-                <button id="toggleSidebarBtn" class="close-sidebar-btn" title="折叠面板">
-                    <i class="fa-solid fa-angles-right"></i>
+                <button id="toggleSidebarBtn" class="close-sidebar-btn" title="折叠面板" aria-label="折叠面板">
+                    <i class="fa-solid fa-angles-right" aria-hidden="true"></i>
                 </button>
             </div>
 
             <!-- Tabs selector for AI Copilot / Execution History -->
             <div class="sidebar-tabs">
-                <button id="aiAssistantTabBtn" class="tab-btn active"><i class="fa-solid fa-robot"></i> AI 助手</button>
-                <button id="execHistoryTabBtn" class="tab-btn"><i class="fa-solid fa-clock-rotate-left"></i> 执行历史</button>
-                <button id="varInspectorTabBtn" class="tab-btn"><i class="fa-solid fa-square-root-variable"></i> 变量空间</button>
+                <button id="aiAssistantTabBtn" class="tab-btn active"><i class="fa-solid fa-robot" aria-hidden="true"></i> AI 助手</button>
+                <button id="execHistoryTabBtn" class="tab-btn"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> 执行历史</button>
+                <button id="varInspectorTabBtn" class="tab-btn"><i class="fa-solid fa-square-root-variable" aria-hidden="true"></i> 变量空间</button>
             </div>
             
             <!-- Tab Contents -->
@@ -148,7 +151,7 @@
                     <!-- Welcome Message -->
                     <div class="chat-message assistant">
                         <div class="chat-avatar">
-                            <i class="fa-solid fa-robot"></i>
+                            <i class="fa-solid fa-robot" aria-hidden="true"></i>
                         </div>
                         <div class="chat-bubble">
                             <p>您好！我是您的 **Iluvatar AI 助手**。我可以帮助您编写、优化、以及调试适配国产算力（天数智芯）的深度学习代码。</p>
@@ -171,9 +174,9 @@
                         </label>
                     </div>
                     <div class="chat-input-wrapper">
-                        <textarea id="chatInput" placeholder="输入您想问 AI 的问题..." rows="2"></textarea>
-                        <button id="sendChatBtn" class="send-btn" title="发送">
-                            <i class="fa-solid fa-paper-plane"></i>
+                        <textarea id="chatInput" placeholder="输入您想问 AI 的问题…" rows="2" aria-label="输入消息"></textarea>
+                        <button id="sendChatBtn" class="send-btn" title="发送" aria-label="发送">
+                            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
                         </button>
                     </div>
                 </div>
@@ -182,7 +185,7 @@
             <div id="execHistoryTabContent" class="tab-content hidden">
                 <div class="sidebar-history-header">
                     <span class="history-count" id="historyCount">暂无历史记录</span>
-                    <button id="clearHistoryBtn" class="clear-history-btn" title="清空执行历史"><i class="fa-solid fa-trash-can"></i> 清空</button>
+                    <button id="clearHistoryBtn" class="clear-history-btn" title="清空执行历史"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> 清空</button>
                 </div>
                 <div class="sidebar-history-list" id="historyList">
                     <!-- Dynamically populated execution history items -->
@@ -192,7 +195,7 @@
             <div id="varInspectorTabContent" class="tab-content hidden">
                 <div class="sidebar-history-header">
                     <span class="history-count">内核活动变量</span>
-                    <button id="refreshVarsBtn" class="clear-history-btn" title="手动刷新"><i class="fa-solid fa-arrows-rotate"></i> 刷新</button>
+                    <button id="refreshVarsBtn" class="clear-history-btn" title="手动刷新"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> 刷新</button>
                 </div>
                 <div class="variables-table-container">
                     <table class="variables-table">
@@ -215,13 +218,13 @@
         </aside>
 
         <!-- Toggle Button for Collapsed Sidebar -->
-        <button id="openSidebarFloatingBtn" class="floating-sidebar-btn hidden" title="展开 AI 助手">
-            <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <button id="openSidebarFloatingBtn" class="floating-sidebar-btn hidden" title="展开 AI 助手" aria-label="展开 AI 助手">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
         </button>
 
         <!-- Toggle Button for Collapsed File Sidebar -->
-        <button id="openFileSidebarFloatingBtn" class="floating-file-sidebar-btn hidden" title="展开文件浏览器">
-            <i class="fa-solid fa-folder-open"></i>
+        <button id="openFileSidebarFloatingBtn" class="floating-file-sidebar-btn hidden" title="展开文件浏览器" aria-label="展开文件浏览器">
+            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
         </button>
     </main>
 
@@ -229,24 +232,24 @@
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-card">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-gears"></i> 云端 LLM API 配置</h2>
-                <button id="closeSettingsBtn" class="close-modal-btn">&times;</button>
+                <h2><i class="fa-solid fa-gears" aria-hidden="true"></i> 云端 LLM API 配置</h2>
+                <button id="closeSettingsBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body">
                 <p class="settings-desc">配置自定义的 AI 推理端点。默认采用 OpenI 平台的 DeepSeek 模型加速提供服务。</p>
-                
+
                 <div class="form-group">
                     <label for="apiUrlInput">API URL 端点</label>
-                    <input type="text" id="apiUrlInput" placeholder="https://token.openi.org.cn/v1/chat/completions">
+                    <input type="url" id="apiUrlInput" placeholder="https://token.openi.org.cn/v1/chat/completions" spellcheck="false">
                     <small>OpenAI 兼容的 completions 路径</small>
                 </div>
 
                 <div class="form-group">
                     <label for="apiTokenInput">API Access Token (Bearer Token)</label>
                     <div class="password-input-wrapper">
-                        <input type="password" id="apiTokenInput" placeholder="sk-...">
-                        <button id="toggleTokenVisibility" type="button" class="eye-btn">
-                            <i class="fa-solid fa-eye"></i>
+                        <input type="password" id="apiTokenInput" placeholder="sk-…" spellcheck="false">
+                        <button id="toggleTokenVisibility" type="button" class="eye-btn" aria-label="显示/隐藏密码">
+                            <i class="fa-solid fa-eye" aria-hidden="true"></i>
                         </button>
                     </div>
                     <small>用于鉴权的 Token 秘钥</small>
@@ -254,7 +257,7 @@
 
                 <div class="form-group">
                     <label for="modelInput">模型名称 (Model Name)</label>
-                    <input type="text" id="modelInput" placeholder="dsv4">
+                    <input type="text" id="modelInput" placeholder="dsv4" spellcheck="false">
                     <small>请求中携带的 model 字段，例如：dsv4</small>
                 </div>
             </div>
@@ -269,8 +272,8 @@
     <div class="modal-overlay" id="gpuModal">
         <div class="modal-card gpu-card">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-microchip"></i> 国产算力详情 - 天数智芯 BI-150</h2>
-                <button id="closeGpuBtn" class="close-modal-btn">&times;</button>
+                <h2><i class="fa-solid fa-microchip" aria-hidden="true"></i> 国产算力详情 - 天数智芯 BI-150</h2>
+                <button id="closeGpuBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="gpu-grid">
@@ -303,7 +306,7 @@
                             <span id="gpuModalVramUsed">3520 MB</span> / <span>32768 MB (32GB HBM2)</span>
                         </div>
                         <div class="vram-bar-full">
-                            <div class="vram-bar-used" id="gpuModalVramBar" style="width: 10.7%"></div>
+                            <div class="vram-bar-used" id="gpuModalVramBar" style="--progress: 0.107"></div>
                         </div>
                         <div class="vram-subtext">显存带宽: 1.2 TB/s | 显存类型: HBM2 极速显存</div>
                     </div>

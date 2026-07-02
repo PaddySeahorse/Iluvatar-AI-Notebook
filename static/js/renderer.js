@@ -111,6 +111,8 @@ export function parseMarkdown(text) {
 export function showFloatingNotification(text) {
     const toast = document.createElement('div');
     toast.className = 'floating-notification';
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
     toast.innerText = text;
     document.body.appendChild(toast);
     
