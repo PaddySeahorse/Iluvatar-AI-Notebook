@@ -22,7 +22,7 @@ export async function initConfig() {
             if (res.ok) {
                 const data = await res.json();
                 apiConfig.url = savedUrl || data.default_url;
-                apiConfig.token = savedToken || data.default_token;
+                apiConfig.token = savedToken || '';
                 apiConfig.model = savedModel || data.default_model;
             }
         } catch (e) {
