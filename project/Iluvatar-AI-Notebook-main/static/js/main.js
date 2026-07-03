@@ -163,7 +163,7 @@ function addInitialCells() {
 import numpy as np
 import matplotlib.pyplot as plt
 
-print("正在初始化天数智芯 BI-150 运算环境…")
+print("正在初始化天数智芯 BI-150 运算环境...")
 x = np.linspace(0, 10, 100)
 y = np.sin(x) * np.exp(-x/3)
 
@@ -592,12 +592,6 @@ function setupEventListeners() {
         } else {
             icon.className = 'fa-solid fa-moon';
         }
-
-        // Update theme-color meta tag
-        const themeColorMeta = document.getElementById('themeColorMeta');
-        if (themeColorMeta) {
-            themeColorMeta.content = isDark ? '#000000' : '#ffffff';
-        }
         
         // Update CodeMirror editor themes dynamically
         const cmTheme = isDark ? 'dracula' : 'neo';
@@ -642,24 +636,16 @@ function setupEventListeners() {
             .then(res => res.json())
             .then(data => {
                 document.getElementById('apiUrlInput').value = data.default_url;
-                document.getElementById('apiTokenInput').value = '';
+                document.getElementById('apiTokenInput').value = data.default_token;
                 document.getElementById('modelInput').value = data.default_model;
             });
     });
 
     // GPU Status Modal
     const gpuModal = document.getElementById('gpuModal');
-    const gpuDashboard = document.getElementById('gpuDashboard');
-    gpuDashboard.addEventListener('click', () => {
+    document.getElementById('gpuDashboard').addEventListener('click', () => {
         gpuModal.classList.add('open');
         state.isGpuModalOpen = true;
-    });
-    gpuDashboard.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            gpuModal.classList.add('open');
-            state.isGpuModalOpen = true;
-        }
     });
     document.getElementById('closeGpuBtn').addEventListener('click', () => {
         gpuModal.classList.remove('open');
@@ -871,7 +857,7 @@ function runCell(id) {
     triggerRender();
     
     // Update top header status indicator
-    setKernelStatus('busy', '正在执行 Python 代码…');
+    setKernelStatus('busy', '正在执行 Python 代码...');
 
     runCellOnBackend(cell.content)
     .then(data => {
@@ -914,53 +900,10 @@ function setKernelStatus(statusClass, text) {
 }
 
 // Real-time GPU Telemetry updates
-let gpuUnavailable = false;
-let gpuFetchFailCount = 0;
-
-function showGpuUnavailable() {
-    gpuUnavailable = true;
-    const utilBar = document.getElementById('gpuUtilBar');
-    const utilVal = document.getElementById('gpuUtilVal');
-    const vramBar = document.getElementById('gpuVramBar');
-    const vramVal = document.getElementById('gpuVramVal');
-    const powerVal = document.getElementById('gpuPowerVal');
-    const tempVal = document.getElementById('gpuTempVal');
-
-    if (utilBar) utilBar.style.setProperty('--progress', '0');
-    if (utilVal) utilVal.innerText = '—';
-    if (vramBar) vramBar.style.setProperty('--progress', '0');
-    if (vramVal) vramVal.innerText = '未连接';
-    if (powerVal) powerVal.innerText = '—';
-    if (tempVal) tempVal.innerText = '—';
-
-    if (state.isGpuModalOpen) {
-        const modalTemp = document.getElementById('gpuModalTemp');
-        const modalPower = document.getElementById('gpuModalPower');
-        const modalStatus = document.getElementById('gpuModalStatus');
-        const modalVramUsed = document.getElementById('gpuModalVramUsed');
-        const modalVramBar = document.getElementById('gpuModalVramBar');
-
-        if (modalTemp) modalTemp.innerText = '—';
-        if (modalPower) modalPower.innerText = '—';
-        if (modalStatus) modalStatus.innerText = '未检测到 GPU 设备';
-        if (modalVramUsed) modalVramUsed.innerText = '—';
-        if (modalVramBar) modalVramBar.style.setProperty('--progress', '0');
-    }
-}
-
 function startGpuTelemetry() {
     setInterval(() => {
-        if (gpuUnavailable) return;
         fetchGpuStatus()
             .then(data => {
-                gpuFetchFailCount = 0;
-
-                // Backend may return an error status when GPU hardware is absent
-                if (data.status && data.status.startsWith('Error')) {
-                    showGpuUnavailable();
-                    return;
-                }
-
                 // Update Top mini dashboard
                 const utilBar = document.getElementById('gpuUtilBar');
                 const utilVal = document.getElementById('gpuUtilVal');
@@ -969,13 +912,13 @@ function startGpuTelemetry() {
                 const powerVal = document.getElementById('gpuPowerVal');
                 const tempVal = document.getElementById('gpuTempVal');
 
-                if (utilBar) utilBar.style.setProperty('--progress', (data.utilization / 100).toString());
+                if (utilBar) utilBar.style.width = `${data.utilization}%`;
                 if (utilVal) utilVal.innerText = `${data.utilization}%`;
-
-                const vramPercent = data.vram_total > 0 ? (data.vram_used / data.vram_total) * 100 : 0;
-                if (vramBar) vramBar.style.setProperty('--progress', (vramPercent / 100).toString());
+                
+                const vramPercent = (data.vram_used / data.vram_total) * 100;
+                if (vramBar) vramBar.style.width = `${vramPercent}%`;
                 if (vramVal) vramVal.innerText = `${data.vram_used}MB / ${Math.round(data.vram_total / 1024)}GB`;
-
+                
                 if (powerVal) powerVal.innerText = `${data.power_draw} W`;
                 if (tempVal) tempVal.innerText = `${data.temperature}°C`;
 
@@ -991,17 +934,10 @@ function startGpuTelemetry() {
                     if (modalPower) modalPower.innerText = `${data.power_draw} W`;
                     if (modalStatus) modalStatus.innerText = data.status;
                     if (modalVramUsed) modalVramUsed.innerText = `${data.vram_used} MB`;
-                    if (modalVramBar) modalVramBar.style.setProperty('--progress', (vramPercent / 100).toString());
+                    if (modalVramBar) modalVramBar.style.width = `${vramPercent}%`;
                 }
             })
-            .catch(err => {
-                gpuFetchFailCount++;
-                console.error("GPU Telemetry fetch failed:", err);
-                // After 3 consecutive failures, mark GPU as unavailable
-                if (gpuFetchFailCount >= 3) {
-                    showGpuUnavailable();
-                }
-            });
+            .catch(err => console.error("GPU Telemetry fetch failed:", err));
     }, 1500);
 }
 
@@ -1011,7 +947,7 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     if (!cell) return;
 
     const originalText = buttonElement.innerText;
-    buttonElement.innerText = "生成中…";
+    buttonElement.innerText = "生成中...";
     buttonElement.disabled = true;
 
     // Initialize the suggestion structure
@@ -1131,7 +1067,7 @@ async function runCellDebug(id, buttonElement) {
     if (!cell || !cell.output || !cell.output.stderr) return;
 
     const originalText = buttonElement.innerHTML;
-    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block"></i> 诊断中…';
+    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block"></i> 诊断中...';
     buttonElement.disabled = true;
 
     const messages = [
@@ -1166,7 +1102,7 @@ async function runCellDebug(id, buttonElement) {
     loaderMsg.innerHTML = `
         <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候…</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
         </div>
     `;
     if (chatHistory) {
@@ -1253,7 +1189,7 @@ async function sendChatMessage() {
     loaderMsg.innerHTML = `
         <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候…</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
         </div>
     `;
     if (chatHistory) {
@@ -1546,7 +1482,7 @@ async function runCellExplain(id) {
     loaderMsg.innerHTML = `
         <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 正在分析代码，请稍候…</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 正在分析代码，请稍候...</span>
         </div>
     `;
     if (chatHistory) {

@@ -111,8 +111,6 @@ export function parseMarkdown(text) {
 export function showFloatingNotification(text) {
     const toast = document.createElement('div');
     toast.className = 'floating-notification';
-    toast.setAttribute('role', 'status');
-    toast.setAttribute('aria-live', 'polite');
     toast.innerText = text;
     document.body.appendChild(toast);
     
@@ -188,7 +186,7 @@ function renderAiSuggestion(cell, callbacks) {
     const header = document.createElement('div');
     header.className = 'suggestion-header';
     header.innerHTML = `
-        <span><i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐代码 (${cell.aiSuggestion.isGenerating ? '生成中…' : '生成完毕'}):</span>
+        <span><i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐代码 (${cell.aiSuggestion.isGenerating ? '生成中...' : '生成完毕'}):</span>
     `;
     
     const actions = document.createElement('div');
@@ -230,7 +228,7 @@ function renderAiSuggestion(cell, callbacks) {
     const codePre = document.createElement('pre');
     const codeCode = document.createElement('code');
     codeCode.className = 'language-python';
-    codeCode.innerText = cell.aiSuggestion.code || '等待生成…';
+    codeCode.innerText = cell.aiSuggestion.code || '等待生成...';
     codePre.appendChild(codeCode);
     previewEl.appendChild(codePre);
 
@@ -290,7 +288,7 @@ function renderCodeEditor(cell, callbacks) {
     copilotBar.className = 'cell-ai-assist-bar';
     copilotBar.innerHTML = `
         <i class="fa-solid fa-wand-magic-sparkles ai-icon-sparkle"></i>
-        <input type="text" class="ai-assist-input" placeholder="✨ 描述需要帮您编写或优化的 Python 核心逻辑…">
+        <input type="text" class="ai-assist-input" placeholder="✨ 描述需要帮您编写或优化的 Python 核心逻辑...">
         <button class="ai-assist-btn">AI 生成</button>
     `;
     
@@ -490,7 +488,7 @@ export function renderCells(cells, activeCellId, callbacks) {
                 const editor = document.createElement('textarea');
                 editor.className = 'cell-editor';
                 editor.value = cell.content;
-                editor.placeholder = '在此输入 Markdown 格式内容…';
+                editor.placeholder = '在此输入 Markdown 格式内容...';
                 editor.addEventListener('input', (e) => {
                     callbacks.onContentChange(cell.id, e.target.value);
                     autoResizeTextarea(editor);
