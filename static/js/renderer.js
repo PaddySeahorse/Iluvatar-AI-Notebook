@@ -137,8 +137,9 @@ function renderCellToolbar(cell, index, cellsLength, callbacks) {
     if (cell.type === 'code') {
         const explainBtn = document.createElement('button');
         explainBtn.className = 'tb-btn';
-        explainBtn.innerHTML = '<i class="fa-solid fa-chalkboard-user"></i>';
+        explainBtn.innerHTML = '<i class="fa-solid fa-chalkboard-user" aria-hidden="true"></i>';
         explainBtn.title = 'AI解释代码';
+        explainBtn.setAttribute('aria-label', 'AI解释代码');
         explainBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             callbacks.onExplainCell(cell.id);
@@ -148,8 +149,9 @@ function renderCellToolbar(cell, index, cellsLength, callbacks) {
 
     const moveUpBtn = document.createElement('button');
     moveUpBtn.className = 'tb-btn';
-    moveUpBtn.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';
+    moveUpBtn.innerHTML = '<i class="fa-solid fa-arrow-up" aria-hidden="true"></i>';
     moveUpBtn.title = '上移';
+    moveUpBtn.setAttribute('aria-label', '上移单元格');
     moveUpBtn.disabled = index === 0;
     moveUpBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -158,8 +160,9 @@ function renderCellToolbar(cell, index, cellsLength, callbacks) {
 
     const moveDownBtn = document.createElement('button');
     moveDownBtn.className = 'tb-btn';
-    moveDownBtn.innerHTML = '<i class="fa-solid fa-arrow-down"></i>';
+    moveDownBtn.innerHTML = '<i class="fa-solid fa-arrow-down" aria-hidden="true"></i>';
     moveDownBtn.title = '下移';
+    moveDownBtn.setAttribute('aria-label', '下移单元格');
     moveDownBtn.disabled = index === cellsLength - 1;
     moveDownBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -168,8 +171,9 @@ function renderCellToolbar(cell, index, cellsLength, callbacks) {
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'tb-btn delete';
-    deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+    deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can" aria-hidden="true"></i>';
     deleteBtn.title = '删除';
+    deleteBtn.setAttribute('aria-label', '删除单元格');
     deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         callbacks.onDeleteCell(cell.id);
@@ -190,7 +194,7 @@ function renderAiSuggestion(cell, callbacks) {
     const header = document.createElement('div');
     header.className = 'suggestion-header';
     header.innerHTML = `
-        <span><i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐代码 (${cell.aiSuggestion.isGenerating ? '生成中...' : '生成完毕'}):</span>
+        <span><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> AI 推荐代码 (${cell.aiSuggestion.isGenerating ? '生成中…' : '生成完毕'}):</span>
     `;
     
     const actions = document.createElement('div');
@@ -201,7 +205,7 @@ function renderAiSuggestion(cell, callbacks) {
     
     const acceptOverwrite = document.createElement('button');
     acceptOverwrite.className = 'suggestion-btn accept-overwrite';
-    acceptOverwrite.innerHTML = '<i class="fa-solid fa-check"></i> 覆盖当前单元格';
+    acceptOverwrite.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> 覆盖当前单元格';
     acceptOverwrite.addEventListener('click', (e) => {
         e.stopPropagation();
         callbacks.onAcceptOverwrite(cell.id, cell.aiSuggestion.code);
@@ -209,7 +213,7 @@ function renderAiSuggestion(cell, callbacks) {
     
     const acceptInsert = document.createElement('button');
     acceptInsert.className = 'suggestion-btn accept-insert';
-    acceptInsert.innerHTML = '<i class="fa-solid fa-plus"></i> 插入为新单元格';
+    acceptInsert.innerHTML = '<i class="fa-solid fa-plus" aria-hidden="true"></i> 插入为新单元格';
     acceptInsert.addEventListener('click', (e) => {
         e.stopPropagation();
         callbacks.onAcceptInsert(cell.id, cell.aiSuggestion.code);
@@ -217,7 +221,7 @@ function renderAiSuggestion(cell, callbacks) {
     
     const discardBtn = document.createElement('button');
     discardBtn.className = 'suggestion-btn discard';
-    discardBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> 放弃';
+    discardBtn.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i> 放弃';
     discardBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         callbacks.onDiscardSuggestion(cell.id);
@@ -232,7 +236,7 @@ function renderAiSuggestion(cell, callbacks) {
     const codePre = document.createElement('pre');
     const codeCode = document.createElement('code');
     codeCode.className = 'language-python';
-    codeCode.innerText = cell.aiSuggestion.code || '等待生成...';
+    codeCode.innerText = cell.aiSuggestion.code || '等待生成…';
     codePre.appendChild(codeCode);
     previewEl.appendChild(codePre);
 
@@ -291,8 +295,8 @@ function renderCodeEditor(cell, callbacks) {
     const copilotBar = document.createElement('div');
     copilotBar.className = 'cell-ai-assist-bar';
     copilotBar.innerHTML = `
-        <i class="fa-solid fa-wand-magic-sparkles ai-icon-sparkle"></i>
-        <input type="text" class="ai-assist-input" placeholder="✨ 描述需要帮您编写或优化的 Python 核心逻辑...">
+        <i class="fa-solid fa-wand-magic-sparkles ai-icon-sparkle" aria-hidden="true"></i>
+        <input type="text" class="ai-assist-input" placeholder="✨ 描述需要帮您编写或优化的 Python 核心逻辑…" autocomplete="off" name="aiAssistInput" aria-label="AI 代码生成提示词">
         <button class="ai-assist-btn">AI 生成</button>
     `;
     
@@ -363,6 +367,10 @@ function renderCellOutput(cell) {
             const img = document.createElement('img');
             img.className = 'output-plot-img';
             img.src = `data:image/png;base64,${plotBase64}`;
+            img.alt = '代码执行输出图表';
+            img.width = 600;
+            img.height = 400;
+            img.loading = 'lazy';
             plotsContainer.appendChild(img);
         });
         outputArea.appendChild(plotsContainer);
@@ -376,8 +384,8 @@ function renderAiDebugBar(cell, callbacks) {
     const debugBar = document.createElement('div');
     debugBar.className = 'ai-debug-bar';
     debugBar.innerHTML = `
-        <span class="debug-text"><i class="fa-solid fa-triangle-exclamation"></i> 检测到运行出错，点击让 AI 进行智能诊断</span>
-        <button class="ai-debug-btn"><i class="fa-solid fa-bug-slash"></i> 一键 AI 调试</button>
+        <span class="debug-text"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> 检测到运行出错，点击让 AI 进行智能诊断</span>
+        <button class="ai-debug-btn"><i class="fa-solid fa-bug-slash" aria-hidden="true"></i> 一键 AI 调试</button>
     `;
     
     const debugBtn = debugBar.querySelector('.ai-debug-btn');
@@ -399,12 +407,12 @@ function createHoverAddBar(index, callbacks) {
     
     const addCode = document.createElement('button');
     addCode.className = 'hover-add-btn';
-    addCode.innerHTML = '<i class="fa-solid fa-plus"></i> 代码';
+    addCode.innerHTML = '<i class="fa-solid fa-plus" aria-hidden="true"></i> 代码';
     addCode.addEventListener('click', () => callbacks.onAddCell('code', index));
 
     const addMd = document.createElement('button');
     addMd.className = 'hover-add-btn';
-    addMd.innerHTML = '<i class="fa-solid fa-paragraph"></i> 文本';
+    addMd.innerHTML = '<i class="fa-solid fa-paragraph" aria-hidden="true"></i> 文本';
     addMd.addEventListener('click', () => callbacks.onAddCell('markdown', index));
 
     group.appendChild(addCode);
@@ -461,9 +469,10 @@ export function renderCells(cells, activeCellId, callbacks) {
         if (cell.type === 'code') {
             const runBtn = document.createElement('button');
             runBtn.className = 'run-cell-btn';
-            runBtn.innerHTML = cell.isExecuting 
-                ? '<i class="fa-solid fa-circle-notch loading-icon" style="display:block"></i>' 
-                : '<i class="fa-solid fa-play"></i>';
+            runBtn.setAttribute('aria-label', cell.isExecuting ? '正在执行' : '运行单元格');
+            runBtn.innerHTML = cell.isExecuting
+                ? '<i class="fa-solid fa-circle-notch loading-icon" style="display:block" aria-hidden="true"></i>'
+                : '<i class="fa-solid fa-play" aria-hidden="true"></i>';
             runBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 callbacks.onRunCell(cell.id);
@@ -475,7 +484,7 @@ export function renderCells(cells, activeCellId, callbacks) {
             count.innerText = cell.isExecuting ? '[*]' : (cell.executionIndex ? `[${cell.executionIndex}]` : '[ ]');
             gutter.appendChild(count);
         } else {
-            gutter.innerHTML = '<i class="fa-solid fa-paragraph" style="color:var(--text-muted);font-size:0.8rem;margin-top:10px;"></i>';
+            gutter.innerHTML = '<i class="fa-solid fa-paragraph" style="color:var(--text-muted);font-size:0.8rem;margin-top:10px;" aria-hidden="true"></i>';
         }
         cellBody.appendChild(gutter);
 
@@ -492,7 +501,10 @@ export function renderCells(cells, activeCellId, callbacks) {
                 const editor = document.createElement('textarea');
                 editor.className = 'cell-editor';
                 editor.value = cell.content;
-                editor.placeholder = '在此输入 Markdown 格式内容...';
+                editor.placeholder = '在此输入 Markdown 格式内容…';
+                editor.setAttribute('autocomplete', 'off');
+                editor.setAttribute('name', 'markdownEditor');
+                editor.setAttribute('aria-label', 'Markdown 编辑器');
                 editor.addEventListener('input', (e) => {
                     callbacks.onContentChange(cell.id, e.target.value);
                     autoResizeTextarea(editor);
