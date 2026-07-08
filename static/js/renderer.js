@@ -1,5 +1,9 @@
 // View rendering and parsing helpers for Iluvatar AI Notebook
 
+// CodeMirror is loaded as a UMD global via <script> in index.html; inside an
+// ES module it isn't auto-available as a bare identifier, so bind it here.
+const CodeMirror = window.CodeMirror;
+
 export const activeEditors = new Map();
 
 export function applyLintDiagnostics(cellId, diagnostics) {
