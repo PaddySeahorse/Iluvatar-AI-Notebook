@@ -62,6 +62,7 @@ const rendererCallbacks = {
         triggerRender();
     },
     onActivateCell: (id) => {
+        if (state.activeCellId === id) return;
         activateCell(id);
         triggerRender();
     },
