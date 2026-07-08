@@ -133,6 +133,7 @@ export function exportNotebookAsIpynb() {
 
         if (cell.type === 'code') {
             const outputs = [];
+            if (!cell.output) cell.output = {};
                 if (cell.output.stdout) {
                     outputs.push({
                         output_type: 'stream',
@@ -167,7 +168,6 @@ export function exportNotebookAsIpynb() {
                         });
                     });
                 }
-            }
 
             return {
                 cell_type: 'code',
