@@ -270,30 +270,33 @@ function renderFileList() {
         const li = document.createElement('li');
         li.className = `file-item ${filename === state.currentFilename ? 'active' : ''}`;
         
-        const nameSpan = document.createElement('span');
+        const nameSpan = document.createElement('button');
         nameSpan.className = 'file-name';
-        nameSpan.innerHTML = `<i class="fa-solid fa-file-invoice"></i> ${filename}`;
+        nameSpan.type = 'button';
+        nameSpan.innerHTML = `<i class="fa-solid fa-file-invoice" aria-hidden="true"></i> ${filename}`;
         nameSpan.addEventListener('click', () => {
             selectNotebookFile(filename);
         });
         li.appendChild(nameSpan);
-        
+
         const actions = document.createElement('div');
         actions.className = 'file-actions';
-        
+
         const renameBtn = document.createElement('button');
         renameBtn.className = 'file-action-btn';
-        renameBtn.innerHTML = '<i class="fa-solid fa-pen-to-square"></i>';
+        renameBtn.innerHTML = '<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>';
         renameBtn.title = '重命名';
+        renameBtn.setAttribute('aria-label', '重命名 ' + filename);
         renameBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             renameNotebookPrompt(filename);
         });
-        
+
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'file-action-btn delete';
-        deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+        deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can" aria-hidden="true"></i>';
         deleteBtn.title = '删除';
+        deleteBtn.setAttribute('aria-label', '删除 ' + filename);
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             deleteNotebookPrompt(filename);
@@ -858,7 +861,7 @@ function runCell(id) {
     triggerRender();
     
     // Update top header status indicator
-    setKernelStatus('busy', '正在执行 Python 代码...');
+    setKernelStatus('busy', '正在执行 Python 代码…');
 
     runCellOnBackend(cell.content)
     .then(data => {
@@ -948,7 +951,7 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     if (!cell) return;
 
     const originalText = buttonElement.innerText;
-    buttonElement.innerText = "生成中...";
+    buttonElement.innerText = "生成中…";
     buttonElement.disabled = true;
 
     // Initialize the suggestion structure
@@ -1068,7 +1071,7 @@ async function runCellDebug(id, buttonElement) {
     if (!cell || !cell.output || !cell.output.stderr) return;
 
     const originalText = buttonElement.innerHTML;
-    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block"></i> 诊断中...';
+    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block" aria-hidden="true"></i> 诊断中…';
     buttonElement.disabled = true;
 
     const messages = [
@@ -1101,9 +1104,9 @@ async function runCellDebug(id, buttonElement) {
     loaderMsg.className = 'chat-message assistant';
     loaderMsg.id = loaderId;
     loaderMsg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="chat-avatar"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite" aria-hidden="true"></i> 思考中，请稍候…</span>
         </div>
     `;
     if (chatHistory) {
@@ -1188,9 +1191,9 @@ async function sendChatMessage() {
     loaderMsg.className = 'chat-message assistant';
     loaderMsg.id = loaderId;
     loaderMsg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="chat-avatar"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 思考中，请稍候...</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite" aria-hidden="true"></i> 思考中，请稍候…</span>
         </div>
     `;
     if (chatHistory) {
@@ -1248,8 +1251,9 @@ function attachCodeBlockActions(container) {
 
         const cpy = document.createElement('button');
         cpy.className = 'tb-btn';
-        cpy.innerHTML = '<i class="fa-solid fa-copy"></i>';
+        cpy.innerHTML = '<i class="fa-solid fa-copy" aria-hidden="true"></i>';
         cpy.title = '复制';
+        cpy.setAttribute('aria-label', '复制代码');
         cpy.addEventListener('click', () => {
             navigator.clipboard.writeText(pre.innerText);
             showFloatingNotification('代码已复制！');
@@ -1257,7 +1261,7 @@ function attachCodeBlockActions(container) {
 
         const insert = document.createElement('button');
         insert.className = 'tb-btn';
-        insert.innerHTML = '<i class="fa-solid fa-plus"></i> 插入';
+        insert.innerHTML = '<i class="fa-solid fa-plus" aria-hidden="true"></i> 插入';
         insert.title = '作为新单元格插入 Notebook';
         insert.addEventListener('click', () => {
             const newCell = addCell('code');
@@ -1281,7 +1285,7 @@ function appendChatMessage(sender, text) {
     const avatarIcon = sender === 'user' ? 'fa-user' : 'fa-robot';
     
     msg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid ${avatarIcon}"></i></div>
+        <div class="chat-avatar"><i class="fa-solid ${avatarIcon}" aria-hidden="true"></i></div>
         <div class="chat-bubble">
             ${parseMarkdown(text)}
         </div>
@@ -1301,7 +1305,7 @@ function appendStreamingChatMessage(sender) {
     const avatarIcon = sender === 'user' ? 'fa-user' : 'fa-robot';
     
     msg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid ${avatarIcon}"></i></div>
+        <div class="chat-avatar"><i class="fa-solid ${avatarIcon}" aria-hidden="true"></i></div>
         <div class="chat-bubble">
             <span class="streaming-text"></span>
         </div>
@@ -1381,7 +1385,7 @@ function renderHistoryList() {
     if (history.length === 0) {
         listContainer.innerHTML = `
             <div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 40px; padding: 0 10px;">
-                <i class="fa-solid fa-clock-rotate-left" style="font-size: 1.8rem; margin-bottom: 12px; display: block; opacity: 0.25; color: var(--accent-purple);"></i>
+                <i class="fa-solid fa-clock-rotate-left" style="font-size: 1.8rem; margin-bottom: 12px; display: block; opacity: 0.25; color: var(--accent-purple);" aria-hidden="true"></i>
                 暂无代码执行历史
             </div>
         `;
@@ -1395,7 +1399,7 @@ function renderHistoryList() {
         const metaEl = document.createElement('div');
         metaEl.className = 'history-item-meta';
         metaEl.innerHTML = `
-            <span class="history-item-time"><i class="fa-solid fa-clock"></i> ${item.timestamp}</span>
+            <span class="history-item-time"><i class="fa-solid fa-clock" aria-hidden="true"></i> ${item.timestamp}</span>
             <span class="history-item-badge ${item.success ? 'success' : 'error'}">${item.success ? '成功' : '失败'}</span>
         `;
         
@@ -1408,7 +1412,7 @@ function renderHistoryList() {
         
         const copyBtn = document.createElement('button');
         copyBtn.className = 'history-action-btn';
-        copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i> 复制';
+        copyBtn.innerHTML = '<i class="fa-solid fa-copy" aria-hidden="true"></i> 复制';
         copyBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             navigator.clipboard.writeText(item.code);
@@ -1417,7 +1421,7 @@ function renderHistoryList() {
         
         const restoreBtn = document.createElement('button');
         restoreBtn.className = 'history-action-btn';
-        restoreBtn.innerHTML = '<i class="fa-solid fa-arrow-left-long"></i> 恢复';
+        restoreBtn.innerHTML = '<i class="fa-solid fa-arrow-left-long" aria-hidden="true"></i> 恢复';
         restoreBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             let insertIdx = state.cells.length;
@@ -1481,9 +1485,9 @@ async function runCellExplain(id) {
     loaderMsg.className = 'chat-message assistant';
     loaderMsg.id = loaderId;
     loaderMsg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="chat-avatar"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
         <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite"></i> 正在分析代码，请稍候...</span>
+            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite" aria-hidden="true"></i> 正在分析代码，请稍候…</span>
         </div>
     `;
     if (chatHistory) {
