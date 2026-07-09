@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Iluvatar AI Notebook — P0 POC Test</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0f172a; color: #e2e8f0;
+            padding: 24px; max-width: 900px; margin: 0 auto;
+        }
+        h1 { font-size: 1.4rem; margin-bottom: 16px; color: #38bdf8; }
+        .subtitle { color: #64748b; font-size: 0.85rem; margin-bottom: 20px; }
+        .section {
+            background: #1e293b; border-radius: 12px; padding: 16px;
+            margin-bottom: 16px; border: 1px solid #334155;
+        }
+        textarea {
+            width: 100%; min-height: 100px; background: #0f172a; color: #e2e8f0;
+            border: 1px solid #475569; border-radius: 8px; padding: 12px;
+            font-family: 'Fira Code', monospace; font-size: 14px; resize: vertical;
+        }
+        textarea:focus { outline: none; border-color: #38bdf8; }
+        .btn-row { display: flex; gap: 10px; margin-top: 12px; }
+        button {
+            padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer;
+            font-size: 14px; font-weight: 500; transition: opacity .2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-run { background: #22c55e; color: #052e16; }
+        .btn-run:hover:not(:disabled) { opacity: 0.9; }
+        .btn-interrupt { background: #ef4444; color: #fff; }
+        .btn-interrupt:hover:not(:disabled) { opacity: 0.9; }
+        .status-bar {
+            display: flex; align-items: center; gap: 8px; margin-top: 12px;
+            font-size: 0.85rem; color: #94a3b8;
+        }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; }
+        .status-dot.busy { background: #f59e0b; animation: pulse 1s infinite; }
+        .status-dot.idle { background: #22c55e; }
+        .status-dot.error { background: #ef4444; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        #output {
+            min-height: 200px; max-height: 500px; overflow-y: auto;
+            padding: 12px; border-radius: 8px; margin-top: 12px;
+        }
+        #output pre {
+            font-family: 'Fira Code', monospace; font-size: 13px;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .output-stdout { color: #e2e8f0; }
+        .output-stderr { color: #f87171; }
+        .output-error {
+            color: #f87171; padding: 8px; background: #7f1d1d33;
+            border-radius: 6px; margin: 4px 0;
+        }
+        .output-display { margin: 8px 0; }
+        .output-display img { max-width: 100%; border-radius: 4px; }
+        .output-result {
+            color: #38bdf8; padding: 4px 0; font-family: 'Fira Code', monospace;
+        }
+        .msg-log {
+            font-size: 0.75rem; color: #475569; margin-top: 8px;
+            font-family: 'Fira Code', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>P0 POC — jupyter_client + ipykernel Streaming Test</h1>
+    <p class="subtitle">Verify SSE streaming output and kernel interrupt via the new jupyter_client-based kernel.</p>
+
+    <div class="section">
+        <textarea id="code" spellcheck="false">import time
+for i in range(10):
+    print(f"Step {i}")
+    time.sleep(0.3)</textarea>
+        <div class="btn-row">
+            <button class="btn-run" id="runBtn" onclick="runStream()">Run (Stream)</button>
+            <button class="btn-interrupt" id="interruptBtn" onclick="interruptKernel()" disabled>Interrupt</button>
+        </div>
+        <div class="status-bar">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Idle</span>
+        </div>
+    </div>
+
+    <div class="section">
+        <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:8px">Output</div>
+        <div id="output"></div>
+        <div class="msg-log" id="msgLog"></div>
+    </div>
+
+<script>
+let abortController = null;
+const output = document.getElementById('output');
+const msgLog = document.getElementById('msgLog');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const runBtn = document.getElementById('runBtn');
+const interruptBtn = document.getElementById('interruptBtn');
+
+function setStatus(state) {
+    statusDot.className = 'status-dot ' + state;
+    statusText.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function appendStream(name, text) {
+    let pre = output.querySelector(`pre[data-stream="${name}"]`);
+    if (!pre) {
+        pre = document.createElement('pre');
+        pre.dataset.stream = name;
+        pre.className = name === 'stderr' ? 'output-stderr' : 'output-stdout';
+        output.appendChild(pre);
+    }
+    pre.textContent += text;
+    output.scrollTop = output.scrollHeight;
+}
+
+function appendDisplayData(data) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'output-display';
+    if (data['image/png']) {
+        const img = document.createElement('img');
+        img.src = 'data:image/png;base64,' + data['image/png'];
+        wrapper.appendChild(img);
+    } else if (data['text/html']) {
+        wrapper.innerHTML = data['text/html'];
+    } else if (data['text/plain']) {
+        const pre = document.createElement('pre');
+        pre.textContent = data['text/plain'];
+        wrapper.appendChild(pre);
+    }
+    output.appendChild(wrapper);
+    output.scrollTop = output.scrollHeight;
+}
+
+function appendResult(data, count) {
+    const div = document.createElement('div');
+    div.className = 'output-result';
+    if (count) div.textContent = `Out[${count}]: `;
+    if (data['text/plain']) div.textContent += data['text/plain'];
+    output.appendChild(div);
+    output.scrollTop = output.scrollHeight;
+}
+
+function appendError(ename, evalue, traceback) {
+    const div = document.createElement('div');
+    div.className = 'output-error';
+    div.innerHTML = `<strong>${ename}</strong>: ${evalue}`;
+    if (traceback && traceback.length) {
+        const pre = document.createElement('pre');
+        pre.textContent = traceback.join('\n');
+        div.appendChild(pre);
+    }
+    output.appendChild(div);
+    output.scrollTop = output.scrollHeight;
+}
+
+function logMsg(msg) {
+    msgLog.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+}
+
+async function runStream() {
+    const code = document.getElementById('code').value;
+    if (!code.trim()) return;
+
+    output.innerHTML = '';
+    msgLog.textContent = '';
+    runBtn.disabled = true;
+    interruptBtn.disabled = false;
+    setStatus('busy');
+
+    abortController = new AbortController();
+
+    try {
+        const resp = await fetch('/api/run_cell_stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+            signal: abortController.signal,
+        });
+
+        if (!resp.ok) {
+            appendError('HTTPError', `${resp.status} ${resp.statusText}`, []);
+            setStatus('error');
+            return;
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let msgCount = 0;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                const match = line.match(/^data: (.+)$/m);
+                if (!match) continue;
+
+                const data = match[1];
+                if (data === '[DONE]') {
+                    logMsg('[DONE] received');
+                    break;
+                }
+
+                try {
+                    const msg = JSON.parse(data);
+                    msgCount++;
+                    logMsg(`#${msgCount} type=${msg.type}`);
+
+                    switch (msg.type) {
+                        case 'stream':
+                            appendStream(msg.name, msg.text);
+                            break;
+                        case 'display_data':
+                            appendDisplayData(msg.data);
+                            break;
+                        case 'execute_result':
+                            appendResult(msg.data, msg.execution_count);
+                            break;
+                        case 'error':
+                            appendError(msg.ename, msg.evalue, msg.traceback);
+                            break;
+                        case 'status':
+                            if (msg.execution_state === 'idle') {
+                                setStatus('idle');
+                            }
+                            break;
+                    }
+                } catch (e) {
+                    console.warn('Parse error:', data, e);
+                }
+            }
+        }
+        setStatus('idle');
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            logMsg('Aborted by user');
+        } else {
+            appendError('ConnectionError', err.message, []);
+            setStatus('error');
+        }
+    } finally {
+        runBtn.disabled = false;
+        interruptBtn.disabled = true;
+        abortController = null;
+    }
+}
+
+async function interruptKernel() {
+    try {
+        const resp = await fetch('/api/interrupt_kernel', { method: 'POST' });
+        const data = await resp.json();
+        logMsg(`Interrupt: ${JSON.stringify(data)}`);
+        if (abortController) abortController.abort();
+    } catch (err) {
+        logMsg('Interrupt failed: ' + err.message);
+    }
+}
+</script>
+</body>
+</html>
