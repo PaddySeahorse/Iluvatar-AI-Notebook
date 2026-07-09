@@ -681,6 +681,65 @@ body {
     background-color: rgba(0, 0, 0, 0.02);
 }
 
+/* Streaming output: execute_result Out[N] label (P2) */
+.output-result {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.output-result-label {
+    color: var(--accent);
+    font-family: var(--font-code);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* Streaming output: error block (P2) */
+.output-error-block {
+    background: rgba(239, 68, 68, 0.08);
+    border-left: 3px solid var(--error);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-top: 8px;
+}
+
+.output-error-header {
+    color: var(--error);
+    font-family: var(--font-code);
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.output-error-traceback {
+    color: #f87171;
+    font-family: var(--font-code);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 4px;
+}
+
+/* Streaming output: generic display_data container (markdown/latex/plain) */
+.output-display {
+    margin-top: 8px;
+}
+
+.output-display .output-stdout {
+    color: var(--text-secondary);
+}
+
+/* SVG display_data sizing */
+.output-svg {
+    margin-top: 8px;
+}
+
+.output-svg svg {
+    max-width: 100%;
+    height: auto;
+}
+
 /* Inline AI Debug Bar */
 .ai-debug-bar {
     display: flex;

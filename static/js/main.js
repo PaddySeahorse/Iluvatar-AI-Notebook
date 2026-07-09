@@ -18,7 +18,6 @@ import {
     initConfig,
     saveApiConfig,
     fetchGpuStatus,
-    runCellOnBackend,
     callLlmProxy,
     callLlmProxyStream,
     lintCellOnBackend,
@@ -37,13 +36,21 @@ import {
     parseMarkdown,
     showFloatingNotification,
     applyLintDiagnostics,
-    activeEditors
+    activeEditors,
+    renderAiDebugBar
 } from './renderer.js';
+
+import { SSEKernelClient } from './sse-client.js';
+import { StreamOutputRenderer } from './output-renderer.js';
 
 // Rerender helper to keep view in sync with state changes
 function triggerRender() {
     renderCells(state.cells, state.activeCellId, rendererCallbacks);
 }
+
+// Active streaming executions keyed by cell id, so the global interrupt
+// button can abort them (client-side fetch abort + backend kernel interrupt).
+const activeSseClients = new Map();
 
 // Callbacks passed to renderer.js to decouple it from state mutation logic
 const rendererCallbacks = {
@@ -445,6 +452,17 @@ function setupEventListeners() {
     const interruptKernelBtn = document.getElementById('interruptKernelBtn');
     if (interruptKernelBtn) {
         interruptKernelBtn.addEventListener('click', async () => {
+            // If there are active streaming executions, abort them; the SSE
+            // client aborts the fetch and signals the backend kernel interrupt
+            // (control channel works even when shell is blocked by GPU compute).
+            if (activeSseClients.size > 0) {
+                for (const client of activeSseClients.values()) {
+                    client.abort();
+                }
+                showFloatingNotification('⚡️ 已中断正在执行的代码');
+                return;
+            }
+            // No active stream: fall back to a direct backend interrupt.
             try {
                 const res = await interruptKernelOnBackend();
                 if (res.success) {
@@ -852,47 +870,110 @@ function setupEventListeners() {
     });
 }
 
-// Execute Python Code Kernel Route
+// Execute Python Code Kernel Route (P2: SSE streaming with auto fallback)
 function runCell(id) {
     const cell = state.cells.find(c => c.id === id);
     if (!cell || cell.type !== 'code') return;
+    if (cell.isExecuting) return; // guard against re-entrant runs on the same cell
 
+    // Assign the execution count up front (matches Jupyter semantics: a count
+    // is consumed even if the cell later errors or is interrupted).
+    state.executionCounter++;
+    cell.executionIndex = state.executionCounter;
     cell.isExecuting = true;
+    cell.success = true;
+
+    // Discard any previous output area so the new execution starts clean
+    // (otherwise renderer.js would preserve the old streamed DOM for the
+    // now-executing cell). Then render once to create the cell DOM; the
+    // renderer ensures an empty .cell-output-area exists for the executing
+    // cell. Subsequent stream messages update that container directly (no
+    // full re-render) so CodeMirror editors keep their state and focus.
+    const prevCellEl = document.getElementById(cell.id);
+    if (prevCellEl) {
+        const prevArea = prevCellEl.querySelector('.cell-output-area');
+        if (prevArea) prevArea.remove();
+    }
     triggerRender();
-    
-    // Update top header status indicator
     setKernelStatus('busy', '正在执行 Python 代码…');
 
-    runCellOnBackend(cell.content)
-    .then(data => {
-        state.executionCounter++;
-        cell.executionIndex = state.executionCounter;
-        cell.output = {
-            stdout: data.stdout,
-            stderr: data.stderr,
-            html: data.html,
-            plots: data.plots
-        };
-        cell.success = data.success;
-        cell.elapsedTime = data.elapsed_time;
-        saveExecutionToHistory(cell.content, data.success, data.stdout || data.stderr);
-    })
-    .catch(err => {
-        cell.success = false;
-        cell.output = {
-            stdout: '',
-            stderr: 'Kernel Error: ' + err.message,
-            plots: []
-        };
-        saveExecutionToHistory(cell.content, false, err.message);
-    })
-    .finally(() => {
-        cell.isExecuting = false;
-        setKernelStatus('online', 'Python 3 (天数智芯 BI-150)');
-        triggerRender();
-        saveNotebookToLocalStorage();
-        updateVariablesInspector();
+    const cellEl = document.getElementById(cell.id);
+    let outputArea = cellEl && cellEl.querySelector('.cell-output-area');
+    if (!outputArea) {
+        // Defensive: create one manually if the renderer didn't.
+        outputArea = document.createElement('div');
+        outputArea.className = 'cell-output-area';
+        if (cellEl) cellEl.appendChild(outputArea);
+    }
+
+    const streamRenderer = new StreamOutputRenderer(outputArea);
+    const client = new SSEKernelClient();
+    activeSseClients.set(cell.id, client);
+    const startedAt = performance.now();
+
+    client.executeStream(cell.content, {
+        onStream: (name, text) => streamRenderer.handleStream(name, text),
+        onDisplayData: (data, metadata) => streamRenderer.handleDisplayData(data, metadata),
+        onResult: (data, _count) => streamRenderer.handleResult(data, cell.executionIndex),
+        onError: (ename, evalue, traceback) => streamRenderer.handleError(ename, evalue, traceback),
+        onStatus: (execState) => {
+            streamRenderer.handleStatus(execState);
+            if (execState === 'busy') setKernelStatus('busy', '正在执行 Python 代码…');
+        },
+        onDone: () => {
+            cell.output = streamRenderer.getAccumulatedOutput();
+            // If the client was aborted, the kernel's exit path didn't reach
+            // us as a clean error — surface it as a failure so the UI shows
+            // the AI debug bar and the cell is marked unsuccessful. Also
+            // synthesise a stderr line so history / .ipynb exports reflect
+            // the interruption explicitly.
+            const wasInterrupted = client.wasAborted();
+            if (wasInterrupted) {
+                cell.output.stderr = (cell.output.stderr || '') + '\nKeyboardInterrupt: 用户中断执行';
+            }
+            cell.success = !streamRenderer.hasError() && !wasInterrupted;
+            cell.elapsedTime = (performance.now() - startedAt) / 1000;
+            cell.isExecuting = false;
+            activeSseClients.delete(cell.id);
+            setKernelStatus('online', 'Python 3 (天数智芯 BI-150)');
+            const out = cell.output || {};
+            const summary = (out.stdout && out.stdout.trim())
+                || (out.stderr && out.stderr.trim())
+                || (cell.success ? '执行完成' : (wasInterrupted ? '执行被中断' : '执行出错'));
+            saveExecutionToHistory(cell.content, cell.success, summary);
+            // Finalize the executing cell in place: reset the gutter/run button
+            // and append the AI debug bar on failure, WITHOUT a full re-render
+            // (preserves the streamed DOM, including Out[N] results).
+            finalizeCellExecution(cell);
+            saveNotebookToLocalStorage();
+            updateVariablesInspector();
+        },
     });
+}
+
+// Finalize a cell's executing UI in place after streaming completes, without
+// a full re-render (preserves the streamed output DOM). Resets the gutter
+// count and run button, and appends/removes the AI debug bar based on success.
+function finalizeCellExecution(cell) {
+    const cellEl = document.getElementById(cell.id);
+    if (!cellEl) return;
+    const runBtn = cellEl.querySelector('.run-cell-btn');
+    if (runBtn) {
+        runBtn.innerHTML = '<i class="fa-solid fa-play" aria-hidden="true"></i>';
+        runBtn.setAttribute('aria-label', '运行单元格');
+    }
+    const count = cellEl.querySelector('.execution-count');
+    if (count) {
+        count.innerText = cell.executionIndex ? `[${cell.executionIndex}]` : '[ ]';
+    }
+    const existingDebug = cellEl.querySelector('.ai-debug-bar');
+    if (!cell.success) {
+        if (!existingDebug) {
+            cellEl.appendChild(renderAiDebugBar(cell, rendererCallbacks));
+        }
+    } else if (existingDebug) {
+        existingDebug.remove();
+    }
 }
 
 function setKernelStatus(statusClass, text) {
@@ -1593,6 +1674,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
         startGpuTelemetry();
+
+        // Test hooks (no-op in production; only present so e2e suites can
+        // drive state and renders without going through the UI).
+        window.__appState = state;
+        window.__triggerRender = triggerRender;
     });
 
     setupEventListeners();
