@@ -1,0 +1,27 @@
+# requirements.txt — Iluvatar AI Notebook
+#
+# 依赖来源：docs/plan/dependency-management.md（P1 阶段），
+# 并按代码库实际导入裁剪（lint_routes 使用 stdlib ast，无需 pylint；
+# python-dotenv 未使用，app.py 手动解析 .env）。
+
+# ── Web 框架 ──────────────────────────────────────
+Flask>=3.0
+flask-cors>=4.0
+
+# ── Jupyter 内核生态（P0/P1 新增，核心）────────────
+jupyter_client>=8.0
+ipykernel>=6.25
+ipython>=8.0
+nbformat>=5.9
+pyzmq>=25.0
+
+# ── AI Copilot 代理 ───────────────────────────────
+requests>=2.31
+
+# ── 用户代码依赖（集成测试会用到 matplotlib）──────
+matplotlib>=3.7
+
+# ── 开发 / 测试 ────────────────────────────────────
+pytest>=7.0
+pytest-asyncio>=0.21
+pytest-mock>=3.12
