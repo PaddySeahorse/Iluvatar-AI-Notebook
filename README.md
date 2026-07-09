@@ -55,13 +55,24 @@
 ├── static/
 │   ├── index.html      # 前端主页面
 │   ├── style.css       # 样式表
-│   └── js/
-│       ├── api.js      # API 通信层
-│       ├── state.js    # 状态管理
-│       ├── renderer.js # UI 渲染逻辑
-│       └── main.js     # 主入口与事件绑定
+│   ├── js/
+│   │   ├── api.js      # API 通信层
+│   │   ├── state.js    # 状态管理
+│   │   ├── renderer.js # UI 渲染逻辑
+│   │   └── main.js     # 主入口与事件绑定
+│   └── vendor/         # 本地化第三方资源
+│       ├── font-awesome/  # Font Awesome 图标库
+│       ├── fonts/          # Inter + Fira Code 字体
+│       └── codemirror/     # CodeMirror 代码编辑器
 ├── tests/
 │   └── test_app.py     # pytest 测试套件
+├── docs/               # 项目文档
+│   ├── adr/            # 架构决策记录
+│   ├── design/         # 设计文档
+│   ├── plan/           # 开发计划
+│   └── roadmap/        # 路线图
+├── .gitignore
+├── pytest.ini          # pytest 配置
 └── README.md
 ```
 
@@ -73,11 +84,27 @@
 
 - Python 3.8+
 - pip
+- 天数智芯 GPU 驱动（可选，用于 GPU 遥测功能）
 
 ### 安装依赖
 
 ```bash
 pip install flask flask-cors matplotlib requests pynvml pytest
+```
+
+### 开发环境配置
+
+如需参与开发，建议安装以下工具：
+
+```bash
+# 代码格式化
+pip install black isort
+
+# 类型检查
+pip install mypy
+
+# 代码检查
+pip install flake8
 ```
 
 ### 配置（可选）
@@ -216,9 +243,34 @@ pytest
 
 ---
 
+## 📋 更新日志
+
+### 最近更新
+
+- **无障碍优化** — 添加 ARIA 标签和无障碍属性，提升屏幕阅读器兼容性
+- **CodeMirror 修复** — 修复焦点事件处理问题
+- **完全本地化** — 移除所有 CDN 依赖，所有资源本地化部署
+- **模块化重构** — 前端代码拆分为 API、State、Renderer 服务层
+- **文件管理增强** — 支持 .ipynb 导入导出、执行历史跟踪、撤销删除
+- **AI 集成** — 支持 LLM 流式响应和 AI 代码建议 UI
+
+### 架构演进
+
+- **ISSUE-007** — 后端模块化重构，引入 Blueprint 架构
+- **ISSUE-009** — 结构化 JSON 错误处理
+- **ISSUE-010** — 内核看门狗自动重启机制
+
+---
+
 ## 📝 示例
 
 启动后，Notebook 默认包含两个示例单元：
 
 1. **Welcome Markdown** — 项目介绍与快速引导
 2. **示例代码** — 使用 NumPy + Matplotlib 绘制正弦衰减曲线，展示代码执行与图表捕获功能
+
+---
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。

@@ -11,3 +11,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Trae
+.trae/
+
+# OpenCode
+.opencode/
