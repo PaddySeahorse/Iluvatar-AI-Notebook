@@ -1,8 +1,9 @@
 """Kernel execution, interrupt, status and variable routes."""
 
+import json
 import time
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response, stream_with_context
 
 from core.errors import KernelError
 from core.kernel import KernelManager
@@ -44,6 +45,45 @@ def run_cell():
         'elapsed_time': elapsed_time,
         'plots': result.get('plots', [])
     })
+
+
+@bp.route('/api/run_cell_stream', methods=['POST'])
+def run_cell_stream():
+    """Stream code execution via Server-Sent Events.
+
+    Request:  {"code": "..."}
+    Response: text/event-stream
+
+    Each SSE ``data:`` line contains a JSON message:
+        {"type": "stream", "name": "stdout", "text": "..."}
+        {"type": "display_data", "data": {"image/png": "base64..."}}
+        {"type": "execute_result", "data": {...}, "execution_count": N}
+        {"type": "error", "ename": "...", "evalue": "...", "traceback": [...]}
+        {"type": "status", "execution_state": "busy"|"idle"}
+
+    The stream terminates with ``data: [DONE]``.
+    """
+    data = request.json or {}
+    code = data.get('code', '')
+
+    if not code.strip():
+        return jsonify({'error': 'Empty code'}), 400
+
+    def generate():
+        kernel_manager = state().kernel_manager
+        for msg in kernel_manager.execute_stream(code):
+            yield f'data: {json.dumps(msg)}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
+        },
+    )
 
 
 @bp.route('/api/interrupt_kernel', methods=['POST'])

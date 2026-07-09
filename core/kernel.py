@@ -1,222 +1,115 @@
-"""Kernel process management.
+"""Kernel management based on jupyter_client + ipykernel (P0 migration).
 
-This module contains the :class:`KernelManager` (a thread-safe supervisor that
-owns a child process executing user Python code) and the :func:`kernel_worker`
-entry point run inside that child process.
+This module provides the :class:`KernelManager` — a thread-safe supervisor that
+wraps ``jupyter_client``'s KernelManager/KernelClient to manage an ipykernel
+subprocess. It replaces the legacy ``multiprocessing.Queue`` + ``exec()``
+approach with ZMQ five-channel protocol (shell/iopub/control/stdin/hb).
 
-Concurrency safety (ISSUE-003): all mutable kernel state is encapsulated inside
-:class:`KernelManager` and ``execute`` serialises send/get_result under an
-execution lock so concurrent requests cannot interleave.
+Backward-compatible interface:
+    - execute(code) -> dict  (same response format as legacy)
+    - interrupt() -> bool
+    - is_kernel_alive() / is_watchdog_alive() -> bool
+    - get_variables() -> list
+    - warm_start() / stop_watchdog()
 
-A watchdog thread (ISSUE-010) proactively restarts the kernel if it dies so the
-next request stays warm.
+New interface:
+    - execute_stream(code) -> generator  (yields message dicts for SSE)
 """
 
 import os
-import signal
+import json
+import queue as _queue
 import threading
-import multiprocessing as mp
+import logging
+from typing import Optional, Generator, Dict, Any, List
 
+from jupyter_client import KernelManager as JupyterKernelManager
 
-def kernel_worker(cmd_q, res_q):
-    import io, sys, base64, traceback, ast, subprocess, shlex
-
-    kernel_namespace = {'__builtins__': __builtins__}
-    current_displays = []
-
-    def custom_display(*args, **kwargs):
-        for arg in args:
-            if arg is not None:
-                if hasattr(arg, '_repr_html_'):
-                    current_displays.append({'type': 'html', 'data': arg._repr_html_()})
-                else:
-                    current_displays.append({'type': 'text', 'data': repr(arg)})
-
-    kernel_namespace['display'] = custom_display
-
-    def exec_with_capture(py_code):
-        try:
-            block = ast.parse(py_code)
-            if block.body and isinstance(block.body[-1], ast.Expr):
-                last_expr = block.body[-1]
-                other_nodes = block.body[:-1]
-
-                if other_nodes:
-                    mod = ast.Module(body=other_nodes, type_ignores=[])
-                    co = compile(mod, '<string>', 'exec')
-                    exec(co, kernel_namespace)
-
-                expr_mod = ast.Expression(body=last_expr.value)
-                co_expr = compile(expr_mod, '<string>', 'eval')
-                res = eval(co_expr, kernel_namespace)
-
-                if res is not None:
-                    if hasattr(res, '_repr_html_'):
-                        current_displays.append({'type': 'html', 'data': res._repr_html_()})
-                    else:
-                        current_displays.append({'type': 'text_repr', 'data': repr(res)})
-            else:
-                exec(py_code, kernel_namespace)
-        except Exception:
-            raise
-
-    while True:
-        try:
-            task = cmd_q.get()
-            if task is None:
-                break
-
-            code = task.get('code', '')
-
-            stdout_capture = io.StringIO()
-            stderr_capture = io.StringIO()
-            old_stdout = sys.stdout
-            old_stderr = sys.stderr
-            sys.stdout = stdout_capture
-            sys.stderr = stderr_capture
-            current_displays.clear()
-            success = True
-
-            try:
-                lines = code.split('\n')
-                current_py_lines = []
-                for line in lines:
-                    stripped = line.strip()
-                    if stripped.startswith('!'):
-                        if current_py_lines:
-                            exec_with_capture('\n'.join(current_py_lines))
-                            current_py_lines = []
-                        cmd = stripped[1:].strip()
-                        if cmd:
-                            try:
-                                cmd_args = shlex.split(cmd)
-                            except ValueError as exc:
-                                raise Exception(f"Invalid shell command syntax: {exc}") from exc
-
-                            process = subprocess.Popen(
-                                cmd_args, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-                            )
-                            out, err = process.communicate()
-                            if out: sys.stdout.write(out)
-                            if err: sys.stderr.write(err)
-                            if process.returncode != 0:
-                                raise Exception(f"Command '{cmd}' failed with exit status {process.returncode}")
-                    else:
-                        current_py_lines.append(line)
-
-                if current_py_lines:
-                    exec_with_capture('\n'.join(current_py_lines))
-
-            except KeyboardInterrupt:
-                success = False
-                sys.stderr.write("\nKeyboardInterrupt: Kernel execution interrupted by user.\n")
-            except Exception:
-                success = False
-                traceback.print_exc(file=sys.stderr)
-            finally:
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
-
-            stdout_output = stdout_capture.getvalue()
-            stderr_output = stderr_capture.getvalue()
-            html_outputs = [d['data'] for d in current_displays if d['type'] == 'html']
-            html_content = '\n'.join(html_outputs) if html_outputs else ""
-            text_reprs = [d['data'] for d in current_displays if d['type'] in ('text', 'text_repr')]
-            if text_reprs:
-                if stdout_output and not stdout_output.endswith('\n'):
-                    stdout_output += '\n'
-                stdout_output += '\n'.join(text_reprs) + '\n'
-
-            captured_plots_list = []
-            try:
-                import matplotlib.pyplot as plt
-                if plt.get_fignums():
-                    for fig_num in plt.get_fignums():
-                        fig = plt.figure(fig_num)
-                        buf = io.BytesIO()
-                        fig.savefig(buf, format='png', bbox_inches='tight')
-                        buf.seek(0)
-                        captured_plots_list.append(base64.b64encode(buf.read()).decode('utf-8'))
-                    plt.close('all')
-            except Exception as e:
-                stderr_output += f"\n[Matplotlib Capture Warning]: Failed to capture plots: {str(e)}"
-
-            vars_list = []
-            for k, v in kernel_namespace.items():
-                if k.startswith('_') or k in ['__builtins__', 'display', 'sys', 'io', 'time', 'base64', 'traceback', 'threading', 'random', 'requests', 'matplotlib', 'plt', 'np', 'numpy']:
-                    continue
-                v_type = type(v).__name__
-                v_repr = ""
-                shape = None
-                try:
-                    if hasattr(v, 'shape'):
-                        shape = str(list(v.shape)) if hasattr(v.shape, '__iter__') else str(v.shape)
-                    if hasattr(v, '__len__') and not isinstance(v, (str, bytes)):
-                        v_repr = f"{v_type} (len={len(v)})"
-                    else:
-                        v_repr = repr(v)
-                        if len(v_repr) > 100: v_repr = v_repr[:100] + "..."
-                except Exception:
-                    v_repr = "<Unable to display>"
-                vars_list.append({'name': k, 'type': v_type, 'repr': v_repr, 'shape': shape})
-            vars_list.sort(key=lambda x: x['name'])
-
-            res_q.put({
-                'success': success,
-                'stdout': stdout_output,
-                'stderr': stderr_output,
-                'html': html_content,
-                'plots': captured_plots_list,
-                'variables': vars_list
-            })
-
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            res_q.put({
-                'success': False,
-                'stdout': '',
-                'stderr': f"Worker internal error: {str(e)}",
-                'html': '',
-                'plots': [],
-                'variables': []
-            })
+logger = logging.getLogger(__name__)
 
 
 class KernelManager:
-    # How often (seconds) the watchdog checks kernel health
-    WATCHDOG_INTERVAL = 2
+    """Kernel manager wrapping jupyter_client.KernelManager.
 
-    def __init__(self):
+    Provides backward-compatible interface with the legacy exec()-based
+    KernelManager, plus new ``execute_stream()`` for SSE streaming.
+    """
+
+    # How often (seconds) the watchdog checks kernel health
+    WATCHDOG_INTERVAL = 5
+
+    # Execution timeout (seconds); 0 = unlimited
+    EXECUTION_TIMEOUT = 300
+
+    def __init__(self, kernel_name: str = "python3"):
+        self._kernel_name = kernel_name
+        self._km: Optional[JupyterKernelManager] = None
+        self._kc = None  # KernelClient
         self._lock = threading.RLock()
         self._execution_lock = threading.Lock()
-        self.cmd_queue = None
-        self.res_queue = None
-        self.kernel_process = None
-        self.cached_variables = []
-        # Tracks whether we're intentionally stopping (e.g. during restart)
-        self._restarting = False
-        self._watchdog_thread = None
+        self._warm_started = False
+        self._cached_variables: List[Dict] = []
+        self._watchdog_thread: Optional[threading.Thread] = None
         self._watchdog_stop = threading.Event()
+        self._restarting = False
 
     # ------------------------------------------------------------------ #
-    #  Internal helpers (must be called with _lock held)                   #
+    #  Lifecycle                                                          #
     # ------------------------------------------------------------------ #
-    def _spawn_kernel(self):
-        """Spawn a fresh kernel process. Caller must hold self._lock."""
-        self.cmd_queue = mp.Queue()
-        self.res_queue = mp.Queue()
-        self.kernel_process = mp.Process(
-            target=kernel_worker,
-            args=(self.cmd_queue, self.res_queue),
-            daemon=True,
-        )
-        self.kernel_process.start()
+
+    def _start_kernel(self):
+        """Start the ipykernel subprocess. Caller must hold _lock."""
+        self._km = JupyterKernelManager(kernel_name=self._kernel_name)
+        self._km.start_kernel()
+        self._kc = self._km.client()
+        self._kc.start_channels()
+        self._kc.wait_for_ready(timeout=60)
+        logger.info("Kernel started: %s", getattr(self._km, 'kernel_id', 'unknown'))
+
+    def ensure_kernel(self):
+        """Ensure the kernel is running; start it if not."""
+        with self._lock:
+            if self._km is None or not self._km.is_alive():
+                self._start_kernel()
+
+    def warm_start(self):
+        """Pre-start kernel and watchdog so the first request is warm."""
+        self.ensure_kernel()
+        self.start_watchdog()
+
+    def shutdown(self):
+        """Shutdown the kernel cleanly."""
+        with self._lock:
+            if self._kc is not None:
+                try:
+                    self._kc.stop_channels()
+                except Exception:
+                    pass
+            if self._km is not None:
+                try:
+                    self._km.shutdown_kernel(now=True)
+                except Exception:
+                    pass
+            self._km = None
+            self._kc = None
+
+    def restart(self):
+        """Restart the kernel."""
+        with self._lock:
+            self._restarting = True
+            try:
+                if self._km is not None:
+                    self._km.restart_kernel()
+                    self._kc = self._km.client()
+                    self._kc.start_channels()
+                    self._kc.wait_for_ready(timeout=60)
+            finally:
+                self._restarting = False
 
     # ------------------------------------------------------------------ #
-    #  Watchdog                                                             #
+    #  Watchdog                                                           #
     # ------------------------------------------------------------------ #
+
     def _watchdog_loop(self):
         """Background thread: restart the kernel if it dies unexpectedly."""
         while not self._watchdog_stop.is_set():
@@ -226,10 +119,9 @@ class KernelManager:
             with self._lock:
                 if self._restarting:
                     continue
-                if self.kernel_process is None or not self.kernel_process.is_alive():
-                    # Kernel died — proactively restart so next request is warm
+                if self._km is None or not self._km.is_alive():
                     try:
-                        self._spawn_kernel()
+                        self._start_kernel()
                     except Exception:
                         pass  # Will retry next cycle
 
@@ -239,9 +131,7 @@ class KernelManager:
             return
         self._watchdog_stop.clear()
         self._watchdog_thread = threading.Thread(
-            target=self._watchdog_loop,
-            name="KernelWatchdog",
-            daemon=True,
+            target=self._watchdog_loop, name="KernelWatchdog", daemon=True
         )
         self._watchdog_thread.start()
 
@@ -250,61 +140,302 @@ class KernelManager:
         self._watchdog_stop.set()
 
     # ------------------------------------------------------------------ #
-    #  Public API                                                           #
+    #  Status                                                             #
     # ------------------------------------------------------------------ #
-    def ensure_kernel(self):
-        """Ensure the kernel is running; start it if not (synchronous guarantee)."""
-        with self._lock:
-            if self.kernel_process is None or not self.kernel_process.is_alive():
-                self._spawn_kernel()
-
-    def warm_start(self):
-        """Pre-start kernel and watchdog so the first request has no cold-start delay."""
-        self.ensure_kernel()
-        self.start_watchdog()
-
-    def interrupt(self):
-        with self._lock:
-            if self.kernel_process and self.kernel_process.is_alive():
-                try:
-                    os.kill(self.kernel_process.pid, signal.SIGINT)
-                    return True
-                except Exception:
-                    return False
-            return False
-
-    def get_variables(self):
-        with self._lock:
-            return list(self.cached_variables)
-
-    def set_variables(self, variables):
-        with self._lock:
-            self.cached_variables = variables
-
-    def send_code(self, code):
-        with self._lock:
-            if self.cmd_queue is None:
-                raise RuntimeError("Kernel not initialized")
-            self.cmd_queue.put({"code": code})
-
-    def get_result(self):
-        with self._lock:
-            if self.res_queue is None:
-                raise RuntimeError("Kernel not initialized")
-            return self.res_queue.get()
-
-    def execute(self, code):
-        with self._execution_lock:
-            self.ensure_kernel()
-            self.send_code(code)
-            result = self.get_result()
-            if 'variables' in result:
-                self.set_variables(result['variables'])
-            return result
 
     def is_kernel_alive(self):
+        """Check if the kernel process is alive."""
         with self._lock:
-            return self.kernel_process is not None and self.kernel_process.is_alive()
+            return self._km is not None and self._km.is_alive()
 
     def is_watchdog_alive(self):
+        """Check if the watchdog thread is alive."""
         return self._watchdog_thread is not None and self._watchdog_thread.is_alive()
+
+    # ------------------------------------------------------------------ #
+    #  Execution — synchronous (backward compatible)                      #
+    # ------------------------------------------------------------------ #
+
+    def execute(self, code: str) -> Dict[str, Any]:
+        """Synchronously execute code (backward compatible with legacy API).
+
+        Returns:
+            {
+                'success': bool,
+                'stdout': str,
+                'stderr': str,
+                'html': str,      # joined HTML strings
+                'plots': list,    # list of base64 PNG strings
+                'variables': list, # cached variable info
+            }
+        """
+        with self._execution_lock:
+            self.ensure_kernel()
+
+            result: Dict[str, Any] = {
+                'success': True,
+                'stdout': '',
+                'stderr': '',
+                'html': '',
+                'plots': [],
+                'variables': [],
+            }
+
+            if not code.strip():
+                result['variables'] = self._cached_variables
+                return result
+
+            if self._kc is None:
+                result['success'] = False
+                result['stderr'] = 'Kernel not started'
+                return result
+
+            msg_id = self._kc.execute(code, store_history=True)
+
+            html_parts: List[str] = []
+            while True:
+                try:
+                    msg = self._kc.iopub_channel.get_msg(timeout=self.EXECUTION_TIMEOUT)
+                except _queue.Empty:
+                    result['success'] = False
+                    result['stderr'] += '\n[Timeout: kernel did not respond]'
+                    break
+                except Exception as e:
+                    result['success'] = False
+                    result['stderr'] += f'\n[Kernel communication error: {e}]'
+                    break
+
+                parent_id = msg.get('parent_header', {}).get('msg_id', '')
+                if parent_id != msg_id:
+                    continue
+
+                msg_type = msg.get('msg_type', '')
+                content = msg.get('content', {})
+
+                if msg_type == 'stream':
+                    name = content.get('name', 'stdout')
+                    text = content.get('text', '')
+                    if name == 'stderr':
+                        result['stderr'] += text
+                    else:
+                        result['stdout'] += text
+                elif msg_type == 'display_data':
+                    data = content.get('data', {})
+                    if 'image/png' in data:
+                        result['plots'].append(data['image/png'])
+                    if 'text/html' in data:
+                        html_parts.append(data['text/html'])
+                elif msg_type == 'execute_result':
+                    data = content.get('data', {})
+                    if 'image/png' in data:
+                        png = data['image/png']
+                        if png not in result['plots']:
+                            result['plots'].append(png)
+                    if 'text/html' in data:
+                        html_parts.append(data['text/html'])
+                    if 'text/plain' in data:
+                        text = data['text/plain']
+                        if result['stdout'] and not result['stdout'].endswith('\n'):
+                            result['stdout'] += '\n'
+                        result['stdout'] += text + '\n'
+                elif msg_type == 'error':
+                    result['success'] = False
+                    traceback_list = content.get('traceback', [])
+                    result['stderr'] += '\n'.join(traceback_list)
+                elif msg_type == 'status':
+                    if content.get('execution_state') == 'idle':
+                        break
+
+            result['html'] = '\n'.join(html_parts) if html_parts else ''
+
+            # Update cached variables (best effort)
+            try:
+                self._cached_variables = self._fetch_variables()
+                result['variables'] = self._cached_variables
+            except Exception:
+                result['variables'] = self._cached_variables
+
+            return result
+
+    # ------------------------------------------------------------------ #
+    #  Execution — streaming (new, for SSE)                               #
+    # ------------------------------------------------------------------ #
+
+    def execute_stream(self, code: str) -> Generator[Dict[str, Any], None, None]:
+        """Stream execution — yields message dicts suitable for SSE.
+
+        Yields messages of type:
+            {"type": "stream", "name": "stdout"|"stderr", "text": "..."}
+            {"type": "display_data", "data": {...}, "metadata": {...}}
+            {"type": "execute_result", "data": {...}, "execution_count": N}
+            {"type": "error", "ename": "...", "evalue": "...", "traceback": [...]}
+            {"type": "status", "execution_state": "busy"|"idle"}
+        """
+        with self._execution_lock:
+            self.ensure_kernel()
+
+            if self._kc is None:
+                yield {
+                    "type": "error",
+                    "ename": "KernelError",
+                    "evalue": "Kernel not started",
+                    "traceback": [],
+                }
+                return
+
+            if not code.strip():
+                yield {"type": "status", "execution_state": "idle"}
+                return
+
+            msg_id = self._kc.execute(code, store_history=True)
+
+            while True:
+                try:
+                    msg = self._kc.iopub_channel.get_msg(timeout=self.EXECUTION_TIMEOUT)
+                except _queue.Empty:
+                    yield {
+                        "type": "error",
+                        "ename": "TimeoutError",
+                        "evalue": "Kernel did not respond within timeout",
+                        "traceback": [],
+                    }
+                    return
+                except Exception as e:
+                    yield {
+                        "type": "error",
+                        "ename": "KernelError",
+                        "evalue": str(e),
+                        "traceback": [],
+                    }
+                    return
+
+                parent_id = msg.get('parent_header', {}).get('msg_id', '')
+                if parent_id != msg_id:
+                    continue
+
+                msg_type = msg.get('msg_type', '')
+                content = msg.get('content', {})
+
+                if msg_type == 'stream':
+                    yield {
+                        "type": "stream",
+                        "name": content.get("name", "stdout"),
+                        "text": content.get("text", ""),
+                    }
+                elif msg_type == 'display_data':
+                    yield {
+                        "type": "display_data",
+                        "data": content.get("data", {}),
+                        "metadata": content.get("metadata", {}),
+                    }
+                elif msg_type == 'execute_result':
+                    yield {
+                        "type": "execute_result",
+                        "data": content.get("data", {}),
+                        "execution_count": content.get("execution_count"),
+                    }
+                elif msg_type == 'error':
+                    yield {
+                        "type": "error",
+                        "ename": content.get("ename", ""),
+                        "evalue": content.get("evalue", ""),
+                        "traceback": content.get("traceback", []),
+                    }
+                elif msg_type == 'status':
+                    yield {
+                        "type": "status",
+                        "execution_state": content.get("execution_state", ""),
+                    }
+                    if content.get("execution_state") == "idle":
+                        break
+
+    # ------------------------------------------------------------------ #
+    #  Interrupt                                                          #
+    # ------------------------------------------------------------------ #
+
+    def interrupt(self) -> bool:
+        """Interrupt kernel execution via control channel (SIGINT)."""
+        with self._lock:
+            if self._km is None:
+                return False
+            try:
+                self._km.interrupt_kernel()
+                return True
+            except Exception as e:
+                logger.error("Failed to interrupt kernel: %s", e)
+                return False
+
+    # ------------------------------------------------------------------ #
+    #  Variables                                                          #
+    # ------------------------------------------------------------------ #
+
+    def get_variables(self) -> List[Dict]:
+        """Return cached variables."""
+        return list(self._cached_variables)
+
+    def set_variables(self, variables):
+        """Set cached variables."""
+        self._cached_variables = list(variables) if variables else []
+
+    def _fetch_variables(self) -> List[Dict]:
+        """Fetch current namespace variables from kernel via a snippet.
+
+        Executes a Python snippet that collects variable info as JSON,
+        keeping all temporaries underscore-prefixed so they don't pollute
+        subsequent listings.
+        """
+        if self._kc is None:
+            return []
+
+        snippet = (
+            "import json as _json\n"
+            "_vars = []\n"
+            "for _k, _v in list(globals().items()):\n"
+            "    if _k.startswith('_') or _k in ('In', 'Out', 'exit', 'quit',\n"
+            "        'open', 'dir', 'print', 'input', 'help', 'get_ipython'):\n"
+            "        continue\n"
+            "    _t = type(_v).__name__\n"
+            "    try:\n"
+            "        _r = repr(_v)\n"
+            "        if len(_r) > 100: _r = _r[:100] + '...'\n"
+            "    except Exception:\n"
+            "        _r = '<Unable to display>'\n"
+            "    _s = None\n"
+            "    try:\n"
+            "        if hasattr(_v, 'shape'):\n"
+            "            _s = str(list(_v.shape)) if hasattr(_v.shape, '__iter__') else str(_v.shape)\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    _vars.append({'name': _k, 'type': _t, 'repr': _r, 'shape': _s})\n"
+            "_vars.sort(key=lambda x: x['name'])\n"
+            "print(_json.dumps(_vars))"
+        )
+
+        msg_id = self._kc.execute(snippet, store_history=False)
+        output = ''
+        while True:
+            try:
+                msg = self._kc.iopub_channel.get_msg(timeout=10)
+            except _queue.Empty:
+                break
+            except Exception:
+                break
+
+            parent_id = msg.get('parent_header', {}).get('msg_id', '')
+            if parent_id != msg_id:
+                continue
+
+            msg_type = msg.get('msg_type', '')
+            content = msg.get('content', {})
+
+            if msg_type == 'stream' and content.get('name') == 'stdout':
+                output += content.get('text', '')
+            elif msg_type == 'status' and content.get('execution_state') == 'idle':
+                break
+
+        if output.strip():
+            try:
+                return json.loads(output.strip())
+            except json.JSONDecodeError:
+                return []
+        return []
