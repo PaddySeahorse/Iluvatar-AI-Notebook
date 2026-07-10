@@ -142,6 +142,15 @@ export class SSEKernelClient {
     }
 
     /**
+     * Whether the last executeStream() call was interrupted via abort().
+     * Cleared on the next executeStream(). Useful for callers to decide
+     * whether the kernel returned a clean result or was force-stopped.
+     */
+    wasAborted() {
+        return this._aborted;
+    }
+
+    /**
      * Abort the current stream and send an interrupt to the kernel.
      *
      * Aborting the fetch stops reading the SSE stream client-side; the

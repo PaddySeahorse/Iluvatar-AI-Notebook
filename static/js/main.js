@@ -922,7 +922,16 @@ function runCell(id) {
         },
         onDone: () => {
             cell.output = streamRenderer.getAccumulatedOutput();
-            cell.success = !streamRenderer.hasError();
+            // If the client was aborted, the kernel's exit path didn't reach
+            // us as a clean error — surface it as a failure so the UI shows
+            // the AI debug bar and the cell is marked unsuccessful. Also
+            // synthesise a stderr line so history / .ipynb exports reflect
+            // the interruption explicitly.
+            const wasInterrupted = client.wasAborted();
+            if (wasInterrupted) {
+                cell.output.stderr = (cell.output.stderr || '') + '\nKeyboardInterrupt: 用户中断执行';
+            }
+            cell.success = !streamRenderer.hasError() && !wasInterrupted;
             cell.elapsedTime = (performance.now() - startedAt) / 1000;
             cell.isExecuting = false;
             activeSseClients.delete(cell.id);
@@ -930,7 +939,7 @@ function runCell(id) {
             const out = cell.output || {};
             const summary = (out.stdout && out.stdout.trim())
                 || (out.stderr && out.stderr.trim())
-                || (cell.success ? '执行完成' : '执行出错');
+                || (cell.success ? '执行完成' : (wasInterrupted ? '执行被中断' : '执行出错'));
             saveExecutionToHistory(cell.content, cell.success, summary);
             // Finalize the executing cell in place: reset the gutter/run button
             // and append the AI debug bar on failure, WITHOUT a full re-render
@@ -1665,6 +1674,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
         startGpuTelemetry();
+
+        // Test hooks (no-op in production; only present so e2e suites can
+        // drive state and renders without going through the UI).
+        window.__appState = state;
+        window.__triggerRender = triggerRender;
     });
 
     setupEventListeners();
