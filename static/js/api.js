@@ -202,6 +202,30 @@ export async function fetchKernelVariables() {
     return await res.json();
 }
 
+// Request code completion (Tab) from kernel — P3
+// Returns { matches, cursor_start, cursor_end, metadata } (empty matches on failure).
+export async function completeOnBackend(code, cursorPos) {
+    const res = await fetch('/api/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, cursor_pos: cursorPos })
+    });
+    if (!res.ok) throw new Error('Completion request failed');
+    return await res.json();
+}
+
+// Request object introspection (? / ??) from kernel — P3
+// Returns { found, data, metadata } (found=false on failure).
+export async function inspectOnBackend(code, cursorPos, detailLevel = 0) {
+    const res = await fetch('/api/inspect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, cursor_pos: cursorPos, detail_level: detailLevel })
+    });
+    if (!res.ok) throw new Error('Inspect request failed');
+    return await res.json();
+}
+
 // Fetch list of server notebooks
 export async function fetchNotebooksList() {
     const res = await fetch('/api/files/list');

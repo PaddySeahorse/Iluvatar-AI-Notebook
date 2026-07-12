@@ -6,6 +6,40 @@ const CodeMirror = window.CodeMirror;
 
 export const activeEditors = new Map();
 
+// P3: shared completion/inspect managers. CompletionManager is per-editor
+// (it tracks one popup per CodeMirror instance), while InspectManager is a
+// singleton (one doc panel shared across all editors). Both are created
+// lazily on first use so renderer.js stays importable in test environments
+// that don't have a DOM / the api.js fetch helpers.
+import { CompletionManager } from './completion.js';
+import { InspectManager } from './inspect.js';
+
+let _inspectManager = null;
+function getInspectManager() {
+    if (!_inspectManager) {
+        // Lazy import of api.js to avoid a hard dependency at module load
+        // (api.js touches fetch, which is fine in browsers but we want to
+        // keep the renderer importable from node:test for parseMarkdown etc.)
+        _inspectManager = new InspectManager({
+            onInspect: (code, cursorPos, detailLevel) =>
+                _doInspect(code, cursorPos, detailLevel),
+        });
+    }
+    return _inspectManager;
+}
+
+// Dynamic import keeps api.js (and its fetch dependency) out of the static
+// import graph of renderer.js, so node:test can still load parseMarkdown.
+async function _doInspect(code, cursorPos, detailLevel) {
+    const { inspectOnBackend } = await import('./api.js');
+    return inspectOnBackend(code, cursorPos, detailLevel);
+}
+
+async function _doComplete(code, cursorPos) {
+    const { completeOnBackend } = await import('./api.js');
+    return completeOnBackend(code, cursorPos);
+}
+
 export function applyLintDiagnostics(cellId, diagnostics) {
     const editor = activeEditors.get(cellId);
     if (!editor) return;
@@ -255,7 +289,14 @@ function renderCodeEditor(cell, callbacks) {
     setTimeout(() => {
         const isDark = document.body.classList.contains('dark-theme');
         const editorTheme = isDark ? 'dracula' : 'neo';
-        
+
+        // P3: per-editor CompletionManager + shared InspectManager. Created
+        // before the CodeMirror instance so its extraKeys can reference them.
+        const completionMgr = new CompletionManager(null, {
+            onComplete: (code, cursorPos) => _doComplete(code, cursorPos),
+        });
+        const inspectMgr = getInspectManager();
+
         const editor = CodeMirror(editorContainer, {
             value: cell.content,
             mode: 'python',
@@ -264,16 +305,26 @@ function renderCodeEditor(cell, callbacks) {
             indentUnit: 4,
             viewportMargin: Infinity,
             extraKeys: {
-                "Tab": function(cm) {
-                    var spaces = Array(cm.getOption("indentUnit") + 1).join(" ");
-                    cm.replaceSelection(spaces);
-                }
+                // Tab: completion when applicable, otherwise indent (managed
+                // inside handleTab via CodeMirror.Pass fall-through).
+                "Tab": function(cm) { return completionMgr.handleTab(); },
+                // Shift+Tab: inspect the word at cursor.
+                "Shift-Tab": function(cm) { inspectMgr.handleInspect(cm); },
+                // Arrow / Enter / Esc: intercepted only when the completion
+                // popup is open; otherwise fall through to default editing.
+                "Up": function(cm) { return completionMgr.handleUp(); },
+                "Down": function(cm) { return completionMgr.handleDown(); },
+                "Enter": function(cm) { return completionMgr.handleEnter(); },
+                "Esc": function(cm) { return completionMgr.handleEsc(); },
             }
         });
-        
+
+        // Bind the manager to the now-created editor instance.
+        completionMgr.bindEditor(editor);
+
         editor.state.lintMarks = [];
         activeEditors.set(cell.id, editor);
-        
+
         editor.on('change', (cm) => {
             const val = cm.getValue();
             callbacks.onContentChange(cell.id, val);
@@ -281,11 +332,11 @@ function renderCodeEditor(cell, callbacks) {
                 callbacks.onCodeChangeDebounced(cell.id, val);
             }
         });
-        
+
         editor.on('focus', () => {
             callbacks.onActivateCell(cell.id);
         });
-        
+
         if (cell.content.trim() && callbacks.onCodeChangeDebounced) {
             callbacks.onCodeChangeDebounced(cell.id, cell.content);
         }
