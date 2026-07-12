@@ -42,6 +42,7 @@ import {
 
 import { SSEKernelClient } from './sse-client.js';
 import { StreamOutputRenderer } from './output-renderer.js';
+import { KernelIndicator } from './kernel-indicator.js';
 
 // Rerender helper to keep view in sync with state changes
 function triggerRender() {
@@ -51,6 +52,11 @@ function triggerRender() {
 // Active streaming executions keyed by cell id, so the global interrupt
 // button can abort them (client-side fetch abort + backend kernel interrupt).
 const activeSseClients = new Map();
+
+// Top-nav kernel status indicator (wraps .status-dot / .status-text).
+// Created once and shared; setKernelStatus() delegates to it so existing
+// call sites don't need to change.
+const kernelIndicator = new KernelIndicator();
 
 // Callbacks passed to renderer.js to decouple it from state mutation logic
 const rendererCallbacks = {
@@ -976,12 +982,13 @@ function finalizeCellExecution(cell) {
     }
 }
 
+// Thin wrapper kept for existing call sites; delegates to the shared
+// KernelIndicator instance so the DOM manipulation lives in one place.
+// `statusClass` is one of: 'online' | 'busy' | 'error' | 'disconnected'.
+// ('online' is the legacy name for the design-doc 'idle' state.)
 function setKernelStatus(statusClass, text) {
-    const dot = document.querySelector('.status-dot');
-    const textEl = document.querySelector('.status-text');
-    
-    if (dot) dot.className = `status-dot ${statusClass}`;
-    if (textEl) textEl.innerText = text;
+    const state = statusClass === 'online' ? 'idle' : statusClass;
+    kernelIndicator.setState(state, text);
 }
 
 // Real-time GPU Telemetry updates

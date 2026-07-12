@@ -37,6 +37,17 @@ function stripAnsi(s) {
     return s.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
+// Pure helper: pick the highest-priority MIME type present in a Jupyter
+// display_data/execute_result `data` dict. Returns null if none match.
+// Exported so the SSE/renderer contract can be unit-tested without a DOM.
+export function pickMime(data) {
+    if (!data) return null;
+    for (const mime of MIME_PRIORITY) {
+        if (data[mime]) return mime;
+    }
+    return null;
+}
+
 // Treat \r as "replace current line": for each \n-delimited line, keep only
 // the segment after the last \r. This renders tqdm progress bars (which
 // refresh a single line with \r) as one updating line instead of a flood.
@@ -171,11 +182,7 @@ export class StreamOutputRenderer {
     // ---- MIME rendering ----
 
     _pickMime(data) {
-        if (!data) return null;
-        for (const mime of MIME_PRIORITY) {
-            if (data[mime]) return mime;
-        }
-        return null;
+        return pickMime(data);
     }
 
     _sectionForMime(mime) {
