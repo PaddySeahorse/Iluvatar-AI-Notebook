@@ -10,6 +10,40 @@ import { runCellOnBackend, interruptKernelOnBackend } from './api.js';
 
 const STREAM_ENDPOINT = '/api/run_cell_stream';
 
+// Pure helper: feed a chunk into an SSE buffer and return the parsed
+// complete messages plus the remaining buffer (trailing partial chunk).
+//
+// SSE messages are separated by a blank line (\n\n). Each message is a
+// `data: <payload>` line; the sentinel `[DONE]` ends the stream.
+//
+// Returns:
+//   {
+//     buffer: string,            // leftover bytes to carry into next call
+//     messages: Array<string>,   // raw payload strings (JSON or [DONE])
+//     done: boolean              // whether [DONE] was seen
+//   }
+//
+// Exported so the framing logic can be unit-tested without a fetch mock.
+export function parseSseChunk(prevBuffer, chunk) {
+    let buffer = prevBuffer + chunk;
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop(); // keep trailing partial chunk
+
+    const messages = [];
+    let done = false;
+    for (const part of parts) {
+        const match = part.match(/^data: (.+)$/m);
+        if (!match) continue;
+        const data = match[1];
+        if (data === '[DONE]') {
+            done = true;
+            continue;
+        }
+        messages.push(data);
+    }
+    return { buffer, messages, done };
+}
+
 /**
  * SSE kernel execution client.
  *
@@ -68,25 +102,20 @@ export class SSEKernelClient {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                buffer += decoder.decode(value, { stream: true });
-                // SSE messages are separated by a blank line (\n\n).
-                const parts = buffer.split('\n\n');
-                buffer = parts.pop(); // keep trailing partial chunk
+                const chunk = decoder.decode(value, { stream: true });
+                const parsed = parseSseChunk(buffer, chunk);
+                buffer = parsed.buffer;
 
-                for (const part of parts) {
-                    const match = part.match(/^data: (.+)$/m);
-                    if (!match) continue;
-
-                    const data = match[1];
-                    if (data === '[DONE]') {
-                        this._finish(callbacks);
-                        return;
-                    }
+                for (const data of parsed.messages) {
                     try {
                         this._dispatch(JSON.parse(data), callbacks);
                     } catch (e) {
                         console.warn('Failed to parse SSE message:', data, e);
                     }
+                }
+                if (parsed.done) {
+                    this._finish(callbacks);
+                    return;
                 }
             }
             // Stream closed without the [DONE] sentinel; treat as finished.

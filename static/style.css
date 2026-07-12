@@ -191,6 +191,14 @@ body {
     background-color: var(--warning);
     box-shadow: 0 0 10px var(--warning);
 }
+.status-dot.error {
+    background-color: var(--danger, #ef4444);
+    box-shadow: 0 0 10px var(--danger, #ef4444);
+}
+.status-dot.disconnected {
+    background-color: var(--text-muted, #64748b);
+    box-shadow: none;
+}
 
 /* Live GPU Telemetry Dashboard */
 .gpu-mini-dashboard {
