@@ -6,13 +6,11 @@ const CodeMirror = window.CodeMirror;
 
 export const activeEditors = new Map();
 
-// P3: shared completion/inspect managers — both are singletons (one
-// completion popup and one inspect panel are shared across all editors).
-// This avoids leaking per-editor boxes into the DOM when the cell list
-// re-renders (which would happen with per-cell instances) and keeps the
-// DOM contract simple (one .completion-box, one .inspect-panel).
-// Created lazily on first use so renderer.js stays importable in test
-// environments that don't have a DOM / the api.js fetch helpers.
+// P3: shared completion/inspect managers. CompletionManager is per-editor
+// (it tracks one popup per CodeMirror instance), while InspectManager is a
+// singleton (one doc panel shared across all editors). Both are created
+// lazily on first use so renderer.js stays importable in test environments
+// that don't have a DOM / the api.js fetch helpers.
 import { CompletionManager } from './completion.js';
 import { InspectManager } from './inspect.js';
 
@@ -28,16 +26,6 @@ function getInspectManager() {
         });
     }
     return _inspectManager;
-}
-
-let _completionManager = null;
-function getCompletionManager() {
-    if (!_completionManager) {
-        _completionManager = new CompletionManager(null, {
-            onComplete: (code, cursorPos) => _doComplete(code, cursorPos),
-        });
-    }
-    return _completionManager;
 }
 
 // Dynamic import keeps api.js (and its fetch dependency) out of the static
@@ -302,9 +290,11 @@ function renderCodeEditor(cell, callbacks) {
         const isDark = document.body.classList.contains('dark-theme');
         const editorTheme = isDark ? 'dracula' : 'neo';
 
-        // P3: shared singletons — one completion popup + one inspect panel
-        // shared across all editors. Created lazily on first call.
-        const completionMgr = getCompletionManager();
+        // P3: per-editor CompletionManager + shared InspectManager. Created
+        // before the CodeMirror instance so its extraKeys can reference them.
+        const completionMgr = new CompletionManager(null, {
+            onComplete: (code, cursorPos) => _doComplete(code, cursorPos),
+        });
         const inspectMgr = getInspectManager();
 
         const editor = CodeMirror(editorContainer, {
@@ -329,9 +319,7 @@ function renderCodeEditor(cell, callbacks) {
             }
         });
 
-        // Bind (or rebind) the shared manager to this editor. Subsequent
-        // calls replace the previous binding, so the popup is always
-        // anchored to the most recently focused editor.
+        // Bind the manager to the now-created editor instance.
         completionMgr.bindEditor(editor);
 
         editor.state.lintMarks = [];

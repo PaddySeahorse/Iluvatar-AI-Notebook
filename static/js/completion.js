@@ -1,15 +1,10 @@
 // CompletionManager: Tab-triggered code completion popup for CodeMirror — P3.
 //
-// One shared singleton (one box in the DOM) backs all editors. The popup is
-// anchored to the focused editor's cursor on demand. This avoids leaking
-// per-editor boxes when the cell list re-renders and keeps the DOM testable
-// contract simple (`document.querySelector('.completion-box')` is unique).
-//
-// On Tab, requests completions from the kernel via /api/complete and shows a
-// popup with keyboard navigation (Up/Down/Enter/Esc). If no completion
-// trigger is present or no matches are returned, Tab falls through to the
-// default indent behaviour (insert spaces) by returning CodeMirror.Pass
-// from the key handler.
+// Wraps a CodeMirror editor instance. On Tab, requests completions from the
+// kernel via /api/complete and shows a popup with keyboard navigation
+// (Up/Down/Enter/Esc). If no completion trigger is present or no matches are
+// returned, Tab falls through to the default indent behaviour (insert spaces)
+// by returning CodeMirror.Pass from the key handler.
 //
 // Pure helpers (shouldTriggerCompletion, clampIndex, wordPrefixAt) are
 // exported so they can be unit-tested without a DOM or CodeMirror instance.
@@ -87,14 +82,12 @@ export function wordPrefixAt(code, cursorPos) {
  */
 export class CompletionManager {
     /**
-     * @param {object} [editor] - CodeMirror editor instance (optional; can
-     *   also be set later via bindEditor). The popup is bound to whichever
-     *   editor most recently had focus / triggered completion.
+     * @param {object} editor - CodeMirror editor instance.
      * @param {object} [options]
      * @param {function} [options.onComplete] - async (code, cursorPos) => {matches, cursor_start, cursor_end}
      */
     constructor(editor, options = {}) {
-        this.editor = editor || null;
+        this.editor = editor;
         this._onComplete = options.onComplete || null;
         this._box = null;
         this._items = [];
@@ -102,8 +95,8 @@ export class CompletionManager {
         this._cursorStart = 0;
         this._cursorEnd = 0;
         this._inFlight = false;
-        this._ensureBox();
-        this._attachGlobalListeners();
+        this._createBox();
+        this._attachEditorListeners();
     }
 
     /** Whether the popup is currently visible. */
@@ -200,7 +193,7 @@ export class CompletionManager {
     }
 
     _show(matches, cursorStart, cursorEnd) {
-        this._items = matches.slice(0, 50);
+        this._items = matches.slice(0, 50); // cap popup size
         this._cursorStart = cursorStart;
         this._cursorEnd = cursorEnd;
         this._selectedIndex = 0;
@@ -212,7 +205,7 @@ export class CompletionManager {
             item.textContent = match;
             item.setAttribute('role', 'option');
             item.addEventListener('mousedown', (e) => {
-                e.preventDefault();
+                e.preventDefault(); // keep editor focus
                 this._selectedIndex = index;
                 this._applySelected();
             });
@@ -290,46 +283,20 @@ export class CompletionManager {
     }
 
     _attachEditorListeners() {
-        // Attach change/blur to the current editor if present. Used only when
-        // an editor is bound (initial constructor or bindEditor). The popup
-        // hides on change so a stale popup doesn't linger after edits.
-        //
-        // Stale-editor risk: renderCells() rebuilds the DOM and creates new
-        // CodeMirror instances, but the old editors' listeners are still
-        // attached. To avoid ghost listeners, we only listen on the most
-        // recent editor: bindEditor() removes listeners on the previous
-        // editor before wiring the new one.
+        // Close the popup when the editor content changes, so stale popups
+        // don't linger after the user navigates away. Called after the editor
+        // is bound (may be deferred if the manager was created before the
+        // CodeMirror instance — see renderer.js renderCodeEditor).
         const cm = this.editor;
         if (!cm || !cm.on) return;
-        // If we previously bound to a different editor, detach the old
-        // listeners first.
-        if (this._boundCm && this._boundCm !== cm) {
-            if (this._boundCm.off) {
-                this._boundCm.off('change', this._onChange);
-                this._boundCm.off('blur', this._onBlur);
-            }
-        }
-        this._onChange = (cmInst, change) => {
+        cm.on('change', () => {
             if (this.isOpen()) this.hide();
-        };
-        this._onBlur = () => {
+        });
+        cm.on('blur', () => {
+            // Small delay so a mousedown on a popup item can fire first.
             setTimeout(() => {
                 if (this.isOpen()) this.hide();
             }, 150);
-        };
-        cm.on('change', this._onChange);
-        cm.on('blur', this._onBlur);
-        this._boundCm = cm;
-    }
-
-    _attachGlobalListeners() {
-        // Click-outside to close. Bound once per manager (which is a
-        // singleton), so we don't add a listener per editor.
-        if (typeof document === 'undefined') return;
-        document.addEventListener('click', (e) => {
-            if (this.isOpen() && !this._box.contains(e.target)) {
-                this.hide();
-            }
         });
     }
 
@@ -339,19 +306,19 @@ export class CompletionManager {
         this._attachEditorListeners();
     }
 
-    _ensureBox() {
-        // Singleton box: reuse an existing one if present, otherwise create.
-        if (typeof document === 'undefined') return;
-        const existing = document.querySelector('.completion-box');
-        if (existing) {
-            this._box = existing;
-            return;
-        }
+    _createBox() {
         const box = document.createElement('div');
         box.className = 'completion-box';
         box.style.display = 'none';
         box.setAttribute('role', 'listbox');
         document.body.appendChild(box);
         this._box = box;
+
+        // Click-outside to close.
+        document.addEventListener('click', (e) => {
+            if (this.isOpen() && !this._box.contains(e.target)) {
+                this.hide();
+            }
+        });
     }
 }
