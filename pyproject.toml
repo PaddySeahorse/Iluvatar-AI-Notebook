@@ -1,0 +1,51 @@
+# pyproject.toml — Iluvatar AI Notebook
+#
+# Minimal packaging metadata so that the IluvatarProvisioner can be registered
+# as a jupyter_client kernel provisioner entry point.  Install in editable mode
+# to activate the GPU provisioner without manual registration:
+#
+#     pip install -e .
+#
+# After install the ``iluvatar_python`` kernel spec (kernels/iluvatar_python/)
+# can be installed with:
+#
+#     jupyter kernelspec install kernels/iluvatar_python --user
+#
+# When the package is NOT installed, call core.iluvatar_provisioner.
+# register_provisioner() at startup to inject the provisioner programmatically.
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iluvatar-ai-notebook"
+version = "0.4.0"
+description = "Iluvatar AI Notebook — AI-First notebook with Jupyter kernel + GPU integration"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "Flask>=3.0",
+    "flask-cors>=4.0",
+    "jupyter_client>=8.0",
+    "ipykernel>=6.25",
+    "ipython>=8.0",
+    "nbformat>=5.9",
+    "pyzmq>=25.0",
+    "requests>=2.31",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-mock>=3.12",
+]
+
+[project.entry-points."jupyter_client.kernel_provisioners"]
+iluvatar-provisioner = "core.iluvatar_provisioner:IluvatarProvisioner"
+
+[tool.setuptools]
+# Flat layout: top-level packages are core/ and static/.
+packages = ["core", "core.routes"]
