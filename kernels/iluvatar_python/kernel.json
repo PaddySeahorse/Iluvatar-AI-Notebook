@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "ipykernel_launcher",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "Iluvatar AI Python 3",
+  "language": "python",
+  "interrupt_mode": "message",
+  "metadata": {
+    "kernel_provisioner": {
+      "provisioner_name": "iluvatar-provisioner"
+    },
+    "debugger": true
+  },
+  "env": {
+    "ILUVATAR_KERNEL_TYPE": "ai-optimized"
+  }
+}
