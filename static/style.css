@@ -2128,3 +2128,266 @@ body {
         scroll-behavior: auto !important;
     }
 }
+
+/* ============================================================
+   P3: Completion Popup (Tab completion) & Inspect Panel (? doc)
+   ============================================================ */
+
+/* --- Completion Popup --- */
+.completion-box {
+    position: absolute;
+    z-index: 1000;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color-active);
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    max-height: 300px;
+    overflow-y: auto;
+    min-width: 240px;
+    max-width: 420px;
+    font-family: var(--font-code);
+    font-size: 0.85rem;
+    padding: 4px 0;
+}
+
+.completion-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    color: var(--text-primary);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background-color 0.1s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.completion-item:last-child {
+    border-bottom: none;
+}
+
+.completion-item:hover,
+.completion-item.selected {
+    background: var(--bg-surface-active);
+    color: var(--accent);
+}
+
+.completion-item.selected {
+    border-left: 3px solid var(--accent);
+    padding-left: 11px;
+}
+
+/* --- Inspect Panel (? / ?? documentation) --- */
+.inspect-panel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 480px;
+    max-width: calc(100vw - 40px);
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color-active);
+    border-radius: 10px;
+    box-shadow: var(--shadow-premium);
+    z-index: 1001;
+    font-size: 0.85rem;
+    animation: inspect-panel-in 0.2s ease;
+}
+
+@keyframes inspect-panel-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.inspect-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    border-radius: 10px 10px 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.inspect-title {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.inspect-title i {
+    color: var(--accent);
+}
+
+.inspect-title code,
+.inspect-body code {
+    font-family: var(--font-code);
+    background: var(--bg-surface-active);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    color: var(--accent);
+}
+
+.inspect-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
+
+.inspect-close:hover {
+    color: var(--error);
+}
+
+.inspect-body {
+    padding: 14px 16px;
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.inspect-body pre.inspect-plain,
+.inspect-body pre.inspect-latex {
+    font-family: var(--font-code);
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-primary);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 10px 12px;
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-secondary);
+    margin: 0;
+}
+
+.inspect-body pre.inspect-latex {
+    border-left-color: var(--accent-purple);
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.inspect-body pre.inspect-code {
+    font-family: var(--font-code);
+    font-size: 0.82rem;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    color: var(--text-primary);
+}
+
+.inspect-body h2,
+.inspect-body h3,
+.inspect-body h4 {
+    color: var(--accent);
+    margin: 10px 0 6px;
+}
+
+.inspect-body h2 { font-size: 1.05rem; }
+.inspect-body h3 { font-size: 0.95rem; }
+.inspect-body h4 { font-size: 0.88rem; }
+
+.inspect-body p {
+    margin: 6px 0;
+}
+
+.inspect-body strong {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.inspect-body em {
+    color: var(--accent-secondary);
+}
+
+.inspect-body .inspect-empty,
+.inspect-body .inspect-error {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 8px 0;
+}
+
+.inspect-body .inspect-error {
+    color: var(--error);
+}
+
+/* --- Markdown / Latex output rendering (display_data text/markdown, text/latex) --- */
+.output-markdown {
+    font-family: var(--font-ui);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    padding: 4px 0;
+}
+
+.output-markdown h2,
+.output-markdown h3,
+.output-markdown h4 {
+    color: var(--accent);
+    margin: 8px 0 4px;
+}
+
+.output-markdown p {
+    margin: 4px 0;
+}
+
+.output-markdown code {
+    font-family: var(--font-code);
+    background: var(--bg-surface-active);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.88em;
+    color: var(--accent);
+}
+
+.output-markdown pre.output-md-code {
+    font-family: var(--font-code);
+    background: rgba(0, 0, 0, 0.25);
+    padding: 10px 12px;
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-secondary);
+    overflow-x: auto;
+    font-size: 0.82rem;
+    margin: 8px 0;
+    color: var(--text-primary);
+}
+
+.output-latex {
+    font-family: var(--font-code);
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.15);
+    padding: 10px 12px;
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-purple);
+    font-style: italic;
+    margin: 4px 0;
+}
+
+/* Light theme adjustments for completion / inspect */
+.light-theme .completion-box {
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
+}
+
+.light-theme .inspect-panel {
+    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+}
+
+.light-theme .inspect-body pre.inspect-plain,
+.light-theme .inspect-body pre.inspect-latex,
+.light-theme .output-markdown pre.output-md-code,
+.light-theme .output-latex {
+    background: rgba(15, 23, 42, 0.04);
+}
