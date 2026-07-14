@@ -1,9 +1,8 @@
-"""Unit tests for core.kernel.KernelManager (P1).
+"""Unit tests for core.kernel.KernelManager (P1 + P3).
 
 Covers lifecycle, synchronous execution, streaming execution, interrupt,
-variables and watchdog — the P1 core paths defined in
-docs/plan/testing-and-rollout.md. The ``complete`` / ``inspect`` methods belong
-to P3 and are intentionally not tested here.
+variables, watchdog (P1) and the complete/inspect shell-channel helpers (P3)
+defined in docs/plan/testing-and-rollout.md.
 
 Tests mock ``jupyter_client`` so no real ipykernel subprocess is spawned.
 """
@@ -511,3 +510,207 @@ class TestKernelManagerWatchdog:
     def test_is_watchdog_alive_false_when_never_started(self):
         km = KernelManager()
         assert km.is_watchdog_alive() is False
+
+
+# --------------------------------------------------------------------------- #
+#  Completion (P3)                                                             #
+# --------------------------------------------------------------------------- #
+
+class TestKernelManagerComplete:
+    """complete(): happy path / no kernel / exception / empty content."""
+
+    def test_complete_returns_matches_and_cursor_range(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.complete.return_value = {
+            'content': {
+                'matches': ['DataFrame', 'DataFrameGroupBy', 'DateOffset'],
+                'cursor_start': 3,
+                'cursor_end': 5,
+                'metadata': {'_jupyter_types_experimental': []},
+            }
+        }
+
+        result = km.complete('pd.Da', 5)
+
+        km._kc.complete.assert_called_once_with(
+            'pd.Da', 5, reply=True, timeout=KernelManager.COMPLETE_TIMEOUT
+        )
+        assert result['matches'] == ['DataFrame', 'DataFrameGroupBy', 'DateOffset']
+        assert result['cursor_start'] == 3
+        assert result['cursor_end'] == 5
+        assert result['metadata'] == {'_jupyter_types_experimental': []}
+
+    def test_complete_returns_empty_when_no_kernel(self):
+        km = KernelManager()
+        # _kc stays None — no kernel ever started
+        result = km.complete('pd.', 3)
+
+        assert result['matches'] == []
+        assert result['cursor_start'] == 3
+        assert result['cursor_end'] == 3
+        assert result['metadata'] == {}
+
+    def test_complete_returns_empty_on_kernel_exception(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.complete.side_effect = RuntimeError('shell channel closed')
+
+        result = km.complete('pd.Da', 5)
+
+        assert result['matches'] == []
+        # On failure the cursor range defaults to cursor_pos so the frontend
+        # doesn't accidentally delete code when applying an empty match list.
+        assert result['cursor_start'] == 5
+        assert result['cursor_end'] == 5
+
+    def test_complete_handles_missing_content_key(self, mocker):
+        """A reply without a `content` key degrades to an empty result."""
+        km = _make_km_with_mock_client(mocker)
+        km._kc.complete.return_value = {}  # malformed reply
+
+        result = km.complete('pd.', 3)
+
+        assert result['matches'] == []
+        assert result['cursor_start'] == 3
+
+    def test_complete_handles_non_dict_reply(self, mocker):
+        """If jupyter_client ever returns a non-dict, we don't crash."""
+        km = _make_km_with_mock_client(mocker)
+        km._kc.complete.return_value = None
+
+        result = km.complete('pd.', 3)
+
+        assert result['matches'] == []
+
+    def test_complete_passes_cursor_pos_through(self, mocker):
+        """The kernel layer does not validate cursor_pos; the route layer does.
+
+        Documents that any clamping of negative / non-int cursor_pos happens
+        at the route boundary, not inside KernelManager.complete.
+        """
+        km = _make_km_with_mock_client(mocker)
+        km._kc.complete.return_value = {'content': {'matches': []}}
+
+        result = km.complete('pd.', 3)
+
+        # cursor_pos is forwarded as-is to the kernel client.
+        assert km._kc.complete.call_args.args[0:2] == ('pd.', 3)
+        # When the kernel returns matches=[] without cursor_start, the result
+        # falls back to cursor_pos.
+        assert result['cursor_start'] == 3
+        assert result['cursor_end'] == 3
+
+    def test_complete_with_zero_matches_returns_empty_list(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.complete.return_value = {
+            'content': {'matches': [], 'cursor_start': 0, 'cursor_end': 3}
+        }
+
+        result = km.complete('nonexistent_token_', 3)
+
+        assert result['matches'] == []
+        assert result['cursor_start'] == 0
+        assert result['cursor_end'] == 3
+
+
+# --------------------------------------------------------------------------- #
+#  Inspection (P3)                                                             #
+# --------------------------------------------------------------------------- #
+
+class TestKernelManagerInspect:
+    """inspect(): found / not-found / no kernel / exception / detail levels."""
+
+    def test_inspect_returns_found_with_data(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.return_value = {
+            'content': {
+                'found': True,
+                'data': {
+                    'text/plain': 'DataFrame([data, index, columns, dtype, copy])',
+                    'text/html': '<table><tr><td>...</td></tr></table>',
+                },
+                'metadata': {},
+            }
+        }
+
+        result = km.inspect('pd.DataFrame', 12, detail_level=0)
+
+        km._kc.inspect.assert_called_once_with(
+            'pd.DataFrame', 12, detail_level=0,
+            reply=True, timeout=KernelManager.INSPECT_TIMEOUT,
+        )
+        assert result['found'] is True
+        assert 'text/plain' in result['data']
+        assert 'text/html' in result['data']
+        assert result['metadata'] == {}
+
+    def test_inspect_detail_level_1_passes_through(self, mocker):
+        """detail_level=1 (??) must be forwarded to the kernel client."""
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.return_value = {
+            'content': {
+                'found': True,
+                'data': {'text/plain': 'def foo():\n    return 42\n'},
+                'metadata': {},
+            }
+        }
+
+        km.inspect('foo', 3, detail_level=1)
+
+        _, kwargs = km._kc.inspect.call_args
+        assert kwargs['detail_level'] == 1
+
+    def test_inspect_returns_not_found_when_kernel_says_so(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.return_value = {
+            'content': {'found': False, 'data': {}, 'metadata': {}}
+        }
+
+        result = km.inspect('does_not_exist', 14)
+
+        assert result['found'] is False
+        assert result['data'] == {}
+
+    def test_inspect_returns_not_found_when_no_kernel(self):
+        km = KernelManager()
+        result = km.inspect('x', 1)
+
+        assert result['found'] is False
+        assert result['data'] == {}
+        assert result['metadata'] == {}
+
+    def test_inspect_returns_not_found_on_exception(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.side_effect = RuntimeError('channel closed')
+
+        result = km.inspect('pd.DataFrame', 12)
+
+        assert result['found'] is False
+        assert result['data'] == {}
+
+    def test_inspect_handles_missing_content_key(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.return_value = {}  # malformed
+
+        result = km.inspect('pd.DataFrame', 12)
+
+        assert result['found'] is False
+
+    def test_inspect_coerces_found_to_bool(self, mocker):
+        """`found` may come back as truthy non-bool; we normalise to bool."""
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.return_value = {
+            'content': {'found': 1, 'data': {'text/plain': 'x'}, 'metadata': {}}
+        }
+
+        result = km.inspect('x', 1)
+
+        assert result['found'] is True  # not the int 1
+
+    def test_inspect_default_detail_level_is_zero(self, mocker):
+        km = _make_km_with_mock_client(mocker)
+        km._kc.inspect.return_value = {'content': {'found': False}}
+
+        km.inspect('x', 1)  # no detail_level arg
+
+        _, kwargs = km._kc.inspect.call_args
+        assert kwargs['detail_level'] == 0

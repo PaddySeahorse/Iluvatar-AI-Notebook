@@ -48,6 +48,38 @@ export function pickMime(data) {
     return null;
 }
 
+// Pure helper: render an inline subset of markdown to HTML. Expects the
+// input to have ALREADY been HTML-escaped (so & < > " ' are entities); this
+// keeps the function composable with the escapeHtml pass in _makeMarkdown.
+// Exported so the markdown rendering contract can be unit-tested.
+export function renderMarkdownInline(escapedHtml) {
+    if (!escapedHtml) return '';
+    let html = escapedHtml;
+    // Fenced code blocks (operate on escaped text — backticks survive escaping)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) =>
+        `<pre class="output-md-code">${code}</pre>`);
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Headers
+    html = html.replace(/^### (.*)$/gim, '<h4>$1</h4>');
+    html = html.replace(/^## (.*)$/gim, '<h3>$1</h3>');
+    html = html.replace(/^# (.*)$/gim, '<h2>$1</h2>');
+    // Bold & italic
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    // Paragraph breaks: wrap loose text in <p>, leave block elements alone.
+    html = html.split(/\n{2,}/).map(block => {
+        if (/^<(h\d|pre|ul|ol|blockquote)/.test(block.trim())) return block;
+        return `<p>${block.replace(/\n/g, '<br>')}</p>`;
+    }).join('\n');
+    return html;
+}
+
+// Internal alias used by the class method (keeps the call site readable).
+function _renderMarkdownInline(escapedHtml) {
+    return renderMarkdownInline(escapedHtml);
+}
+
 // Treat \r as "replace current line": for each \n-delimited line, keep only
 // the segment after the last \r. This renders tqdm progress bars (which
 // refresh a single line with \r) as one updating line instead of a flood.
@@ -205,7 +237,9 @@ export class StreamOutputRenderer {
             case 'text/html':
                 return this._makeHtml(content, 'output-html');
             case 'text/markdown':
+                return this._makeMarkdown(content);
             case 'text/latex':
+                return this._makeLatex(content);
             case 'text/plain':
                 return this._makePlainText(content);
             case 'application/javascript':
@@ -234,6 +268,26 @@ export class StreamOutputRenderer {
     _makePlainText(content) {
         const pre = document.createElement('pre');
         pre.className = 'output-stdout';
+        pre.textContent = content;
+        return pre;
+    }
+
+    _makeMarkdown(content) {
+        // Render a subset of markdown to HTML. Escapes all input first so
+        // injected text can't introduce raw HTML. Used for text/markdown
+        // display_data / execute_result payloads (e.g. IPython Markdown()).
+        const wrap = document.createElement('div');
+        wrap.className = 'output-markdown';
+        wrap.innerHTML = _renderMarkdownInline(escapeHtml(content));
+        return wrap;
+    }
+
+    _makeLatex(content) {
+        // Without MathJax loaded, render LaTeX source in a styled <pre> so the
+        // user sees the raw source rather than a broken render. The class
+        // allows a future MathJax/KaTeX integration to upgrade it.
+        const pre = document.createElement('pre');
+        pre.className = 'output-latex';
         pre.textContent = content;
         return pre;
     }

@@ -366,6 +366,100 @@ class KernelManager:
                 return False
 
     # ------------------------------------------------------------------ #
+    #  Completion & inspection (P3)                                       #
+    # ------------------------------------------------------------------ #
+    #
+    # These wrap jupyter_client's shell-channel complete_request /
+    # inspect_request, which delegate to IPython's jedi-based completer and
+    # the ? / ?? introspector. Both block on the shell channel reply (with a
+    # short timeout) so they remain backward-compatible with Flask's
+    # synchronous request model.
+    #
+    # The kernel must already be started; callers (route layer) are
+    # responsible for surfacing a 503 when it is not.
+
+    # How long to wait for a complete/inspect reply before giving up.
+    COMPLETE_TIMEOUT = 5
+    INSPECT_TIMEOUT = 5
+
+    def complete(self, code: str, cursor_pos: int) -> Dict[str, Any]:
+        """Return code-completion matches at ``cursor_pos`` in ``code``.
+
+        Maps to ``kc.complete()`` on the shell channel. Always returns a dict
+        in the documented shape; on any failure (no kernel, timeout, kernel
+        error) the dict's ``matches`` list is empty so the frontend can fall
+        back silently.
+
+        Returns:
+            {
+                'matches': [str, ...],
+                'cursor_start': int,
+                'cursor_end': int,
+                'metadata': dict,
+            }
+        """
+        empty = {
+            'matches': [],
+            'cursor_start': max(0, cursor_pos),
+            'cursor_end': max(0, cursor_pos),
+            'metadata': {},
+        }
+        with self._lock:
+            if self._kc is None:
+                return empty
+            try:
+                reply = self._kc.complete(
+                    code, cursor_pos, reply=True, timeout=self.COMPLETE_TIMEOUT
+                )
+            except Exception as e:
+                logger.warning('complete() failed: %s', e)
+                return empty
+
+        content = reply.get('content', {}) if isinstance(reply, dict) else {}
+        return {
+            'matches': list(content.get('matches', [])),
+            'cursor_start': content.get('cursor_start', cursor_pos),
+            'cursor_end': content.get('cursor_end', cursor_pos),
+            'metadata': content.get('metadata', {}) or {},
+        }
+
+    def inspect(self, code: str, cursor_pos: int, detail_level: int = 0) -> Dict[str, Any]:
+        """Return introspection info (? / ??) for the token at ``cursor_pos``.
+
+        Maps to ``kc.inspect()`` on the shell channel. ``detail_level`` 0
+        matches ``?`` (signature + docstring); 1 matches ``??`` (source).
+
+        Returns:
+            {
+                'found': bool,
+                'data': {mime_type: str, ...},
+                'metadata': dict,
+            }
+        """
+        empty = {'found': False, 'data': {}, 'metadata': {}}
+        with self._lock:
+            if self._kc is None:
+                return empty
+            try:
+                reply = self._kc.inspect(
+                    code,
+                    cursor_pos,
+                    detail_level=detail_level,
+                    reply=True,
+                    timeout=self.INSPECT_TIMEOUT,
+                )
+            except Exception as e:
+                logger.warning('inspect() failed: %s', e)
+                return empty
+
+        content = reply.get('content', {}) if isinstance(reply, dict) else {}
+        return {
+            'found': bool(content.get('found', False)),
+            'data': dict(content.get('data', {}) or {}),
+            'metadata': dict(content.get('metadata', {}) or {}),
+        }
+
+    # ------------------------------------------------------------------ #
     #  Variables                                                          #
     # ------------------------------------------------------------------ #
 

@@ -111,3 +111,65 @@ def kernel_status():
 @bp.route('/api/get_variables', methods=['GET'])
 def get_variables():
     return jsonify(state().kernel_manager.get_variables())
+
+
+@bp.route('/api/complete', methods=['POST'])
+def complete():
+    """Code completion (P3).
+
+    Request:
+        {"code": "...", "cursor_pos": <int>}
+
+    Response (always 200, matches may be empty on any failure):
+        {
+            "matches": ["DataFrame", "DataFrameGroupBy", ...],
+            "cursor_start": <int>,
+            "cursor_end": <int>,
+            "metadata": {...}
+        }
+
+    Delegates to ``KernelManager.complete`` which wraps
+    ``jupyter_client``'s shell-channel ``complete_request`` (IPython jedi
+    completer). The kernel must already be started; if it isn't, an empty
+    match list is returned so the frontend can fail soft.
+    """
+    data = request.json or {}
+    code = data.get('code', '')
+    cursor_pos = data.get('cursor_pos', len(code))
+
+    if not isinstance(cursor_pos, int) or cursor_pos < 0:
+        cursor_pos = len(code)
+
+    result = state().kernel_manager.complete(code, cursor_pos)
+    return jsonify(result)
+
+
+@bp.route('/api/inspect', methods=['POST'])
+def inspect():
+    """Object introspection (? / ??) (P3).
+
+    Request:
+        {"code": "...", "cursor_pos": <int>, "detail_level": 0|1}
+
+    Response (always 200, found=False on any failure):
+        {
+            "found": <bool>,
+            "data": {"text/plain": "...", "text/html": "..."},
+            "metadata": {...}
+        }
+
+    ``detail_level`` 0 corresponds to ``?`` (docstring + signature);
+    1 corresponds to ``??`` (full source).
+    """
+    data = request.json or {}
+    code = data.get('code', '')
+    cursor_pos = data.get('cursor_pos', len(code))
+    detail_level = data.get('detail_level', 0)
+
+    if not isinstance(cursor_pos, int) or cursor_pos < 0:
+        cursor_pos = len(code)
+    if detail_level not in (0, 1):
+        detail_level = 0
+
+    result = state().kernel_manager.inspect(code, cursor_pos, detail_level)
+    return jsonify(result)

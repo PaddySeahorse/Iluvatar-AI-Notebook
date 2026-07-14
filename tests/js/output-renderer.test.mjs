@@ -15,6 +15,7 @@ import {
     escapeHtml,
     stripAnsi,
     pickMime,
+    renderMarkdownInline,
 } from '../../static/js/output-renderer.js';
 
 // ── renderStreamText ──────────────────────────────────────────────────
@@ -127,3 +128,58 @@ test('pickMime: image/svg+xml ranks between image/jpeg and text/html', () => {
     const data2 = { 'image/jpeg': 'j', 'image/svg+xml': 's' };
     assert.equal(pickMime(data2), 'image/jpeg');
 });
+
+// ── renderMarkdownInline ─────────────────────────────────────────────
+// Operates on ALREADY-escaped HTML (so & < > are entities). This is the
+// contract used by StreamOutputRenderer._makeMarkdown which calls
+// escapeHtml() before passing the text to renderMarkdownInline.
+
+test('renderMarkdownInline: returns empty string for falsy input', () => {
+    assert.equal(renderMarkdownInline(''), '');
+    assert.equal(renderMarkdownInline(null), '');
+});
+
+test('renderMarkdownInline: renders headers (#, ##, ###)', () => {
+    assert.ok(renderMarkdownInline('# Title').includes('<h2>Title</h2>'));
+    assert.ok(renderMarkdownInline('## Section').includes('<h3>Section</h3>'));
+    assert.ok(renderMarkdownInline('### Sub').includes('<h4>Sub</h4>'));
+});
+
+test('renderMarkdownInline: renders bold and italic', () => {
+    assert.ok(renderMarkdownInline('**bold**').includes('<strong>bold</strong>'));
+    assert.ok(renderMarkdownInline('*italic*').includes('<em>italic</em>'));
+});
+
+test('renderMarkdownInline: renders inline code', () => {
+    const out = renderMarkdownInline('use `print` here');
+    assert.ok(out.includes('<code>print</code>'));
+});
+
+test('renderMarkdownInline: renders fenced code blocks', () => {
+    const escaped = '```python\nprint(1)\n```';
+    const out = renderMarkdownInline(escaped);
+    assert.ok(out.includes('<pre class="output-md-code">'));
+    assert.ok(out.includes('print(1)'));
+});
+
+test('renderMarkdownInline: wraps loose text in <p> tags', () => {
+    const out = renderMarkdownInline('hello world');
+    assert.ok(out.includes('<p>'));
+    assert.ok(out.includes('hello world'));
+    assert.ok(out.includes('</p>'));
+});
+
+test('renderMarkdownInline: does not double-escape already-escaped entities', () => {
+    // Input is &lt;script&gt; (already escaped). The function should NOT
+    // re-escape the & into &amp;lt;.
+    const out = renderMarkdownInline('&lt;script&gt;');
+    assert.ok(out.includes('&lt;script&gt;'));
+    assert.ok(!out.includes('&amp;lt;'));
+});
+
+test('renderMarkdownInline: preserves code block content verbatim', () => {
+    const escaped = '```\na &lt; b &gt; c\n```';
+    const out = renderMarkdownInline(escaped);
+    assert.ok(out.includes('a &lt; b &gt; c'));
+});
+
