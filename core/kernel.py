@@ -41,7 +41,11 @@ class KernelManager:
     # Execution timeout (seconds); 0 = unlimited
     EXECUTION_TIMEOUT = 300
 
-    def __init__(self, kernel_name: str = "python3"):
+    def __init__(
+        self,
+        kernel_name: str = "python3",
+        use_iluvatar_provisioner: bool = False,
+    ):
         self._kernel_name = kernel_name
         self._km: Optional[JupyterKernelManager] = None
         self._kc = None  # KernelClient
@@ -52,6 +56,10 @@ class KernelManager:
         self._watchdog_thread: Optional[threading.Thread] = None
         self._watchdog_stop = threading.Event()
         self._restarting = False
+        # When True, the Iluvatar GPU provisioner is registered with
+        # jupyter_client before the kernel starts so the ``iluvatar_python``
+        # kernelspec can reference it.  See core/iluvatar_provisioner.py.
+        self._use_iluvatar_provisioner = use_iluvatar_provisioner
 
     # ------------------------------------------------------------------ #
     #  Lifecycle                                                          #
@@ -59,6 +67,13 @@ class KernelManager:
 
     def _start_kernel(self):
         """Start the ipykernel subprocess. Caller must hold _lock."""
+        if self._use_iluvatar_provisioner:
+            # Register the Iluvatar GPU provisioner with jupyter_client so the
+            # ``iluvatar_python`` kernelspec can find it.  Idempotent: a no-op
+            # if already registered (e.g. by a previous start or entry point).
+            from core.iluvatar_provisioner import register_provisioner
+            register_provisioner()
+
         self._km = JupyterKernelManager(kernel_name=self._kernel_name)
         self._km.start_kernel()
         self._kc = self._km.client()

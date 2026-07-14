@@ -37,6 +37,16 @@ DEFAULT_API_URL = os.environ.get('OPENI_API_URL', 'https://token.openi.org.cn/v1
 DEFAULT_API_TOKEN = os.environ.get('OPENI_API_TOKEN', '')
 DEFAULT_API_MODEL = os.environ.get('OPENI_API_MODEL', 'dsv4')
 
+# P4: When enabled, the notebook backend uses the Iluvatar GPU kernel
+# provisioner (core/iluvatar_provisioner.py) which injects IXUCA SDK
+# environment variables and provides GPU-aware interrupt.  Requires the
+# ``iluvatar_python`` kernelspec to be installed:
+#     jupyter kernelspec install kernels/iluvatar_python --user
+USE_ILUVATAR_PROVISIONER = os.environ.get(
+    'USE_ILUVATAR_PROVISIONER', 'false'
+).lower() == 'true'
+KERNEL_NAME = 'iluvatar_python' if USE_ILUVATAR_PROVISIONER else 'python3'
+
 # Force matplotlib to use Agg backend so it doesn't open GUI windows
 try:
     import matplotlib
@@ -53,7 +63,10 @@ CORS(app, resources={r"/api/*": {"origins": os.environ.get('ALLOWED_ORIGINS', '*
 # ---------------------------------------------------------------------------
 # Mutable runtime state (monkeypatched by the test-suite)
 # ---------------------------------------------------------------------------
-kernel_manager = KernelManager()
+kernel_manager = KernelManager(
+    kernel_name=KERNEL_NAME,
+    use_iluvatar_provisioner=USE_ILUVATAR_PROVISIONER,
+)
 WORKSPACE_DIR = os.path.realpath('.')
 
 
