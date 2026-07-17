@@ -12,7 +12,7 @@
 |------|-----|
 | **ADR 编号** | 001 |
 | **标题** | 复用 Jupyter 内核生态库（jupyter_client + ipykernel）替代手写 KernelManager |
-| **状态** | 提议中（Proposed） |
+| **状态** | 已实施（Implemented） |
 | **日期** | 2026-07-08 |
 | **决策者** | Iluvatar AI Notebook 核心团队 |
 | **影响范围** | `core/kernel.py`、`core/routes/kernel_routes.py`、前端 API 层、依赖管理 |
@@ -204,7 +204,8 @@ Iluvatar AI Notebook 当前使用手写的 `KernelManager`（`core/kernel.py`，
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
-| 2026-07-08 | v1.0 | 初始版本 | 待指定 |
+| 2026-07-08 | v1.0 | 初始版本（Proposed） | 待指定 |
+| 2026-07-17 | v1.1 | P0–P4 实施完成，状态更新为 Implemented | AtomCode |
 
 ---
 

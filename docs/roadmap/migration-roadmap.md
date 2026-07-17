@@ -29,14 +29,14 @@ Week 0        Week 1-2        Week 2-3        Week 3-4        Week 4-5
 概念验证     核心执行替换     前端流式适配    补全/内省/富媒体   GPU Prov. + 灰度
 ```
 
-| 里程碑 | 名称 | 工期 | 交付物 | 准入标准 |
-|--------|------|------|--------|---------|
-| M0 | 概念验证 | 2-3 天 | POC 原型 | Flask 中启动 ipykernel 并通过 SSE 推送流式输出，`/api/run_cell_stream` 可用 |
-| M1 | 核心执行替换 | 5-7 天 | 新版 `kernel_routes.py` | 替换 `exec()` 为 ipykernel，保持现有 API 兼容，流式输出可用 |
-| M2 | 前端流式适配 | 5-7 天 | 新版前端 JS | 前端 SSE 接收流式输出，display_data 消息处理，status 状态同步 |
-| M3 | 补全与内省 | 3-4 天 | 补全 API | Tab 补全、`?`/`??` 内省、`%` Magics 全部可用 |
-| M4 | GPU 集成与富媒体 | 8-12 天 | IluvatarProvisioner + 富媒体渲染 | GPU 资源分配/中断正常，ipywidgets/tqdm/Plotly 可使用 |
-| M5 | 灰度发布与稳定 | 持续 | 生产就绪版本 | 双轨运行 1 周无 P0 问题，用户反馈正向 |
+| 里程碑 | 名称 | 工期 | 状态 | 交付物 | 准入标准 |
+|--------|------|------|------|--------|---------|
+| M0 | 概念验证 | 2-3 天 | ✅ **已完成** | POC 原型：Flask 中启动 ipykernel 并通过 SSE 推送流式输出，`/api/run_cell_stream` 可用 | 已通过：`print()` 实时输出、`time.sleep()` 逐行可见、中断可用 |
+| M1 | 核心执行替换 | 5-7 天 | ✅ **已完成** | 新版 `core/kernel.py`（封装 jupyter_client）+ 新版 `core/routes/kernel_routes.py`（SSE 流式）+ 兼容性适配层 + 单元测试套件 | 已通过：所有旧 API 向后兼容、流式端点可用、中断可靠、覆盖率达标 |
+| M2 | 前端流式适配 | 5-7 天 | ✅ **已完成** | `sse-client.js` / `output-renderer.js` / `kernel-indicator.js` + 富媒体渲染组件 | 已通过：流式输出 UI 实时可见、PNG 内联、HTML 渲染、busy/idle 指示、错误 traceback 美化 |
+| M3 | 补全与内省 | 3-4 天 | ✅ **已完成** | `/api/complete` + `/api/inspect` 端点 + `completion.js` + `inspect.js` + E2E 测试 | 已通过：`df.` Tab 补全、`?` 文档查看、`%timeit` 正常工作 |
+| M4 | GPU 集成与富媒体 | 8-12 天 | ✅ **已完成** | `core/iluvatar_provisioner.py` + `kernels/iluvatar_python/kernel.json` + `pyproject.toml` entry point + GPU 集成测试 | 已通过：环境变量注入、`torch-iluvatar` GPU 调用、GPU 中断、多 Notebook 隔离 |
+| M5 | 灰度发布与稳定 | 持续 | 🔄 **进行中** | 配置开关、监控埋点、灰度发布流程 | 待通过：双轨运行、错误率低于旧内核、中断成功率 > 99% |
 
 **总工期：约 3-5 周核心迁移 + 1-2 周灰度发布。**
 
@@ -248,6 +248,6 @@ Week 0        Week 1-2        Week 2-3        Week 3-4        Week 4-5
 
 ---
 
-**文档版本**: v1.0  
-**最后更新**: 2026-07-08  
+**文档版本**: v1.1  
+**最后更新**: 2026-07-17  
 **负责人**: 待指定

@@ -65,9 +65,11 @@
 
 ### 3.1 新版 KernelManager 封装层
 
-**文件**: `core/kernel.py`（重写）
+**文件**: `core/kernel.py`（重写，约 550 行）
 
 **设计原则**：封装 jupyter_client 的 KernelManager 和 KernelClient，对外暴露与旧 API 兼容的接口。
+
+与实现差异说明：实际代码基于此设计进一步演进，增加了 watchdog 自动重启线程、`queue.Queue` 驱动的执行结果收集、`_start_kernel()`/`ensure_kernel()` 等内部辅助方法，以及 `set_variables()`/`_fetch_variables()` 变量管理逻辑。方法名 `is_alive()` 在实际实现中拆分为 `is_kernel_alive()` 和 `is_watchdog_alive()`。
 
 ```python
 """
@@ -828,13 +830,18 @@ KernelManager
 ├── warm_start() -> None
 ├── shutdown() -> None
 ├── restart() -> None
-├── is_alive() -> bool
+├── is_kernel_alive() -> bool
+├── is_watchdog_alive() -> bool
+├── start_watchdog() -> None
+├── stop_watchdog() -> None
 ├── execute(code: str) -> Dict
 ├── execute_stream(code: str) -> Generator[Dict]
 ├── interrupt() -> bool
 ├── complete(code: str, cursor_pos: int) -> Dict
 ├── inspect(code: str, cursor_pos: int, detail_level: int) -> Dict
-└── get_variables() -> Dict
+├── get_variables() -> List
+├── set_variables() -> None
+└── ensure_kernel() -> None
 
 IluvatarProvisioner (KernelProvisionerBase)
 ├── pre_launch(**kwargs) -> Dict
@@ -905,6 +912,6 @@ KERNEL_CONFIG = {
 
 ---
 
-**文档版本**: v1.0
-**最后更新**: 2026-07-08
+**文档版本**: v1.1
+**最后更新**: 2026-07-17
 **负责人**: 待指定

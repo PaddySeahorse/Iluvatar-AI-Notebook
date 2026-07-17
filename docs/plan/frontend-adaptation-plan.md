@@ -67,127 +67,16 @@ GET  /api/kernel_status  →  轮询内核状态
 /**
  * SSE 流式执行客户端
  */
-class SSEKernelClient {
-    constructor(baseUrl = '/api') {
-        this.baseUrl = baseUrl;
-        this.abortController = null;
-    }
-
-    /**
-     * 流式执行代码
-     * @param {string} code - 要执行的代码
-     * @param {Object} callbacks - 回调函数
-     * @param {Function} callbacks.onStream - (name, text) => {}
-     * @param {Function} callbacks.onDisplayData - (data) => {}
-     * @param {Function} callbacks.onResult - (data, executionCount) => {}
-     * @param {Function} callbacks.onError - (ename, evalue, traceback) => {}
-     * @param {Function} callbacks.onStatus - (state) => {}
-     * @param {Function} callbacks.onDone - () => {}
-     */
-    async executeStream(code, callbacks = {}) {
-        this.abortController = new AbortController();
-
-        try {
-            const response = await fetch(`${this.baseUrl}/run_cell_stream`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code }),
-                signal: this.abortController.signal,
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-
-                // 解析 SSE 消息（以 \n\n 分隔）
-                const lines = buffer.split('\n\n');
-                buffer = lines.pop(); // 保留未完成的部分
-
-                for (const line of lines) {
-                    const dataMatch = line.match(/^data: (.+)$/m);
-                    if (!dataMatch) continue;
-
-                    const data = dataMatch[1];
-                    if (data === '[DONE]') {
-                        if (callbacks.onDone) callbacks.onDone();
-                        return;
-                    }
-
-                    try {
-                        const msg = JSON.parse(data);
-                        this._handleMessage(msg, callbacks);
-                    } catch (e) {
-                        console.warn('Failed to parse SSE message:', data, e);
-                    }
-                }
-            }
-        } catch (err) {
-            if (err.name === 'AbortError') {
-                console.log('Execution aborted');
-            } else {
-                if (callbacks.onError) {
-                    callbacks.onError('ConnectionError', err.message, []);
-                }
-            }
-        }
-    }
-
-    /**
-     * 中断执行
-     */
-    abort() {
-        if (this.abortController) {
-            this.abortController.abort();
-        }
-        // 同时发送中断请求
-        fetch(`${this.baseUrl}/interrupt_kernel`, { method: 'POST' });
-    }
-
-    _handleMessage(msg, callbacks) {
-        switch (msg.type) {
-            case 'stream':
-                if (callbacks.onStream) {
-                    callbacks.onStream(msg.name, msg.text);
-                }
-                break;
-            case 'display_data':
-                if (callbacks.onDisplayData) {
-                    callbacks.onDisplayData(msg.data, msg.metadata);
-                }
-                break;
-            case 'execute_result':
-                if (callbacks.onResult) {
-                    callbacks.onResult(msg.data, msg.execution_count);
-                }
-                break;
-            case 'error':
-                if (callbacks.onError) {
-                    callbacks.onError(msg.ename, msg.evalue, msg.traceback);
-                }
-                break;
-            case 'status':
-                if (callbacks.onStatus) {
-                    callbacks.onStatus(msg.execution_state);
-                }
-                break;
-            case 'execute_input':
-                if (callbacks.onInput) {
-                    callbacks.onInput(msg.code, msg.execution_count);
-                }
-                break;
-        }
-    }
-}
+// 实际实现：export 纯函数 runStream(code, callbacks, abortSignal)，
+// 用 fetch + ReadableStream 解析 SSE 数据流，不依赖 class。
+// 关键导出：
+//   runStream(code, callbacks, abortSignal) -> Promise<void>
+//   abortStream() -> void
+//
+// 回调签名保持与设计一致：
+//   onStream(name, text), onDisplayData(data, metadata),
+//   onResult(data, executionCount), onError(ename, evalue, traceback),
+//   onStatus(state), onInput(code, executionCount)
 ```
 
 ### 2.3 输出渲染器改造
@@ -196,222 +85,14 @@ class SSEKernelClient {
 
 ```javascript
 /**
- * 输出渲染器 — 支持 Jupyter MIME 类型
+ * 流式输出渲染器 — 支持 Jupyter MIME 类型
  */
-class OutputRenderer {
-    constructor(container) {
-        this.container = container;
-        this.currentStream = null;
-        this.outputElements = [];
-    }
-
-    /**
-     * 处理流式文本输出
-     * 支持 \r 回车符刷新（tqdm 进度条）
-     */
-    handleStream(name, text) {
-        if (name === 'stderr') {
-            this._appendStream('stderr', text, '#ef4444');
-        } else {
-            this._appendStream('stdout', text, 'inherit');
-        }
-    }
-
-    _appendStream(streamName, text, color) {
-        // 处理 \r 等于回到行首
-        if (text.includes('\r') && !text.includes('\n')) {
-            // tqdm 风格进度条：替换当前行
-            if (this.currentStream && this.currentStream.dataset.stream === streamName) {
-                const lines = this.currentStream.textContent.split('\n');
-                lines[lines.length - 1] = text.replace(/\r/g, '');
-                this.currentStream.textContent = lines.join('\n');
-                return;
-            }
-        }
-
-        // 创建新的流式输出元素
-        if (!this.currentStream || this.currentStream.dataset.stream !== streamName) {
-            this.currentStream = document.createElement('pre');
-            this.currentStream.className = 'output-stream';
-            this.currentStream.dataset.stream = streamName;
-            this.currentStream.style.color = color;
-            this.container.appendChild(this.currentStream);
-        }
-
-        this.currentStream.textContent += text;
-        this._scrollToBottom();
-    }
-
-    /**
-     * 处理富媒体显示数据（MIME 类型按优先级渲染）
-     */
-    handleDisplayData(data) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'output-display';
-
-        // MIME 类型优先级：image/png > text/html > image/svg+xml > text/markdown > text/latex > text/plain
-        const mimeOrder = [
-            'image/png',
-            'image/jpeg',
-            'image/svg+xml',
-            'text/html',
-            'text/markdown',
-            'text/latex',
-            'application/javascript',
-            'text/plain',
-        ];
-
-        for (const mime of mimeOrder) {
-            if (data[mime]) {
-                this._renderMime(wrapper, mime, data[mime]);
-                break; // 只渲染最高优先级的一种
-            }
-        }
-
-        this.container.appendChild(wrapper);
-        this._scrollToBottom();
-    }
-
-    _renderMime(container, mime, content) {
-        switch (mime) {
-            case 'image/png':
-            case 'image/jpeg':
-                const img = document.createElement('img');
-                img.src = `data:${mime};base64,${content}`;
-                img.style.maxWidth = '100%';
-                container.appendChild(img);
-                break;
-
-            case 'image/svg+xml':
-                const svgWrapper = document.createElement('div');
-                svgWrapper.innerHTML = content;
-                container.appendChild(svgWrapper);
-                break;
-
-            case 'text/html':
-                const htmlWrapper = document.createElement('div');
-                htmlWrapper.innerHTML = content;
-                // 安全沙箱：禁用脚本执行
-                htmlWrapper.querySelectorAll('script').forEach(s => s.remove());
-                container.appendChild(htmlWrapper);
-                break;
-
-            case 'text/markdown':
-                const mdWrapper = document.createElement('div');
-                // 使用简单的 Markdown 渲染（或引入 marked.js）
-                if (typeof marked !== 'undefined') {
-                    mdWrapper.innerHTML = marked.parse(content);
-                } else {
-                    mdWrapper.textContent = content;
-                }
-                container.appendChild(mdWrapper);
-                break;
-
-            case 'text/latex':
-                const latexWrapper = document.createElement('div');
-                // 使用 KaTeX 或 MathJax 渲染
-                if (typeof katex !== 'undefined') {
-                    try {
-                        katex.render(content, latexWrapper, { throwOnError: false });
-                    } catch (e) {
-                        latexWrapper.textContent = content;
-                    }
-                } else {
-                    latexWrapper.textContent = content;
-                }
-                container.appendChild(latexWrapper);
-                break;
-
-            case 'text/plain':
-            default:
-                const pre = document.createElement('pre');
-                pre.textContent = content;
-                container.appendChild(pre);
-                break;
-        }
-    }
-
-    /**
-     * 处理执行结果
-     */
-    handleResult(data, executionCount) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'output-result';
-
-        if (executionCount) {
-            const label = document.createElement('span');
-            label.className = 'execution-count';
-            label.textContent = `Out[${executionCount}]:`;
-            wrapper.appendChild(label);
-        }
-
-        // 优先渲染 text/html，其次 text/plain
-        if (data['text/html']) {
-            const htmlEl = document.createElement('div');
-            htmlEl.innerHTML = data['text/html'];
-            wrapper.appendChild(htmlEl);
-        } else if (data['text/plain']) {
-            const pre = document.createElement('pre');
-            pre.textContent = data['text/plain'];
-            wrapper.appendChild(pre);
-        }
-
-        this.container.appendChild(wrapper);
-        this._scrollToBottom();
-    }
-
-    /**
-     * 处理错误
-     */
-    handleError(ename, evalue, traceback) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'output-error';
-
-        const header = document.createElement('div');
-        header.className = 'error-header';
-        header.innerHTML = `<strong>${this._escapeHtml(ename)}</strong>: ${this._escapeHtml(evalue)}`;
-        wrapper.appendChild(header);
-
-        if (traceback && traceback.length > 0) {
-            const tb = document.createElement('pre');
-            tb.className = 'error-traceback';
-            tb.textContent = traceback.join('');
-            wrapper.appendChild(tb);
-        }
-
-        this.container.appendChild(wrapper);
-        this._scrollToBottom();
-    }
-
-    /**
-     * 处理状态变更
-     */
-    handleStatus(state) {
-        this.container.dataset.kernelStatus = state;
-        if (state === 'idle') {
-            this.currentStream = null;
-        }
-    }
-
-    /**
-     * 清空输出
-     */
-    clear() {
-        this.container.innerHTML = '';
-        this.currentStream = null;
-        this.outputElements = [];
-    }
-
-    _scrollToBottom() {
-        this.container.scrollTop = this.container.scrollHeight;
-    }
-
-    _escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-}
+// 实际实现：export class StreamOutputRenderer，非破坏性 DOM 渲染，
+// 支持 \r 回车符刷新（tqdm 进度条），输出累积到 cell.output 对象保持向后兼容。
+// 关键导出：
+//   export class StreamOutputRenderer { ... }
+//   export function pickMime(data)       — MIME 优先级选择器
+//   export function renderMarkdownInline(escapedHtml) — 轻量 Markdown 渲染
 ```
 
 ### 2.4 内核状态指示器
@@ -653,7 +334,9 @@ class InspectManager {
 
 ### 4.1 主流程改造
 
-**文件**: `static/js/notebook.js`（核心改造）
+**文件**: `static/js/main.js`（核心改造，~1690 行）
+
+实际实现说明：前端沿用 `main.js` 作为主控制器文件，未引入 `notebook.js`。执行流由 `main.js` 调用 `runStream()`（来自 `sse-client.js`）与 `StreamOutputRenderer`（来自 `output-renderer.js`）协作完成，不通过 `NotebookController` 类封装。补全和内省分别由 `CompletionManager`（`completion.js`）和 `InspectManager`（`inspect.js`）管理，通过 `renderer.js` 中的 `getCompletionManager()`/`getInspectManager()` 惰性创建。
 
 ```javascript
 /**
@@ -851,6 +534,6 @@ class ExecutionAdapter {
 
 ---
 
-**文档版本**: v1.0
-**最后更新**: 2026-07-08
+**文档版本**: v1.1
+**最后更新**: 2026-07-17
 **负责人**: 待指定

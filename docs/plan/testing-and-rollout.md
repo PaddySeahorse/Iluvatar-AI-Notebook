@@ -399,48 +399,32 @@ class TestIluvatarProvisioner:
 | **多 Cell** | 连续执行多个 Cell → 观察变量共享 | 变量跨 Cell 共享 |
 | **重启** | 重启内核 → 执行代码 → 验证状态 | 内核重启后状态干净 |
 
-### 4.2 E2E 测试脚本（Playwright）
+### 4.2 E2E 测试脚本（Playwright + Node.js）
 
-```python
-# tests/e2e/test_notebook_e2e.py
-import pytest
-from playwright.sync_api import Page, expect
+实际实现说明：E2E 测试使用 **Node.js mjs** 而非 Python，分别按里程碑组织：
 
+**文件**: `e2e/p2-streaming.spec.mjs`（P2 流式输出场景）
 
-@pytest.mark.e2e
-class TestNotebookE2E:
-    """端到端测试"""
+```javascript
+// P2 streaming E2E suite — Playwright + Google Chrome
+// 场景：流式输出可见、中断执行、Markdown 富媒体渲染
+import { test, expect, chromium } from '@playwright/test';
+```
 
-    def test_execute_code_and_see_output(self, page: Page):
-        """测试执行代码并查看输出"""
-        page.goto("http://localhost:5000")
-        page.fill("[data-testid='cell-input']", "print('hello world')")
-        page.click("[data-testid='run-button']")
-        output = page.locator("[data-testid='cell-output']")
-        expect(output).to_contain_text("hello world")
+**文件**: `e2e/p3-completion-inspect.spec.mjs`（P3 补全 & 内省场景，~273 行）
 
-    def test_streaming_output(self, page: Page):
-        """测试流式输出"""
-        page.goto("http://localhost:5000")
-        code = "import time\nfor i in range(5):\n    print(f'Step {i}')\n    time.sleep(0.5)"
-        page.fill("[data-testid='cell-input']", code)
-        page.click("[data-testid='run-button']")
+```javascript
+// P3 completion & introspection E2E suite — Playwright + Google Chrome
+// 场景：Tab 补全弹出、Shift+Tab 内省面板、键盘导航选择补全项
+import { test, expect, chromium } from '@playwright/test';
+```
 
-        # 等待输出逐步出现
-        for i in range(5):
-            output = page.locator("[data-testid='cell-output']")
-            expect(output).to_contain_text(f"Step {i}")
+运行方式（需先启动 Flask 服务）：
 
-    def test_interrupt_loop(self, page: Page):
-        """测试中断无限循环"""
-        page.goto("http://localhost:5000")
-        page.fill("[data-testid='cell-input']", "while True: pass")
-        page.click("[data-testid='run-button']")
-        page.wait_for_timeout(1000)
-        page.click("[data-testid='interrupt-button']")
-        # 验证内核状态恢复为 idle
-        status = page.locator("[data-testid='kernel-status']")
-        expect(status).to_contain_text("idle")
+```bash
+python app.py &
+npx playwright test e2e/p2-streaming.spec.mjs
+npx playwright test e2e/p3-completion-inspect.spec.mjs
 ```
 
 ---
@@ -745,6 +729,6 @@ kernel_metrics = KernelMetrics()
 
 ---
 
-**文档版本**: v1.0
-**最后更新**: 2026-07-08
+**文档版本**: v1.1
+**最后更新**: 2026-07-17
 **负责人**: 待指定
