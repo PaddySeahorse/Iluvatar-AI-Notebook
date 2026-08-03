@@ -25,7 +25,10 @@ def get_real_gpu_state():
         temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
 
         try:
-            power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+            raw_power = pynvml.nvmlDeviceGetPowerUsage(handle)
+            # NVML spec returns milliwatts (e.g. 35000 = 35W), but the Iluvatar
+            # driver reports watts directly (e.g. 35).  Tolerate both units.
+            power = raw_power / 1000.0 if raw_power > 100 else float(raw_power)
         except Exception:
             power = 0.0
 

@@ -67,14 +67,19 @@ def gpu_kernel():
 # --------------------------------------------------------------------------- #
 
 class TestIluvatarHardware:
-    """Verify IXUCA SDK is reachable on this host."""
+    """Verify the GPU CLI is reachable on this host."""
 
-    def test_ixuca_smi_available(self):
-        """ixuca-smi must be on PATH for GPU enumeration/interrupt."""
+    def test_gpu_cli_available(self):
+        """At least one GPU CLI must be on PATH for device enumeration.
+
+        The provisioner works with either the IXUCA runtime CLI (``ixuca-smi``)
+        or the CoreX SDK CLI (``ixsmi``, read-only queries).
+        """
         import shutil
-        assert shutil.which("ixuca-smi") is not None, (
-            "ixuca-smi not found on PATH — IXUCA SDK not installed"
-        )
+        assert any(
+            shutil.which(cli) is not None
+            for cli in ("ixuca-smi", "ixsmi")
+        ), "neither ixuca-smi nor ixsmi found on PATH — GPU SDK not installed"
 
     def test_get_assigned_gpu_returns_real_device(self, provisioner):
         gpu_id = provisioner._get_assigned_gpu()

@@ -65,6 +65,44 @@ class TestGetAssignedGpu:
 
         assert prov._get_assigned_gpu() == "0"
 
+    def test_falls_back_to_ixsmi_when_ixuca_smi_missing(self, monkeypatch, mocker):
+        """CoreX-only hosts: ixuca-smi absent, enumeration via ixsmi."""
+        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
+        mocker.patch(
+            "core.iluvatar_provisioner.subprocess.run",
+            side_effect=[
+                FileNotFoundError("ixuca-smi not found"),
+                _completed(stdout="3\n"),
+            ],
+        )
+        prov = _make_provisioner()
+
+        assert prov._get_assigned_gpu() == "3"
+
+    def test_falls_back_to_ixsmi_when_ixuca_smi_fails(self, monkeypatch, mocker):
+        """ixuca-smi present but broken — ixsmi still resolves the device."""
+        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
+        mocker.patch(
+            "core.iluvatar_provisioner.subprocess.run",
+            side_effect=[
+                _completed(stdout="", returncode=1),
+                _completed(stdout="7\n8\n"),
+            ],
+        )
+        prov = _make_provisioner()
+
+        assert prov._get_assigned_gpu() == "7"
+
+    def test_defaults_to_zero_when_both_clis_missing(self, monkeypatch, mocker):
+        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
+        mocker.patch(
+            "core.iluvatar_provisioner.subprocess.run",
+            side_effect=FileNotFoundError("no GPU CLI installed"),
+        )
+        prov = _make_provisioner()
+
+        assert prov._get_assigned_gpu() == "0"
+
     def test_defaults_to_zero_when_ixuca_smi_missing(self, monkeypatch, mocker):
         monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
         mocker.patch(
