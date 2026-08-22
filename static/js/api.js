@@ -35,14 +35,25 @@ export async function initConfig() {
     return apiConfig;
 }
 
-// Save API configuration
-export function saveApiConfig(url, token, model) {
+// Save API configuration (to localStorage and, if available, the backend .env)
+export async function saveApiConfig(url, token, model) {
     apiConfig.url = url;
     apiConfig.token = token;
     apiConfig.model = model;
     localStorage.setItem('openi_api_url', url);
     localStorage.setItem('openi_api_token', token);
     localStorage.setItem('openi_api_model', model);
+    try {
+        const res = await fetch('/api/save_config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, token, model })
+        });
+        return res.ok;
+    } catch (e) {
+        console.error('Failed to persist API config to .env:', e);
+        return false;
+    }
 }
 
 // Fetch GPU hardware metrics

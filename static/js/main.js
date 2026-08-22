@@ -650,15 +650,17 @@ function setupEventListeners() {
         }
     });
     
-    document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+    document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
         const url = document.getElementById('apiUrlInput').value.trim();
         const token = document.getElementById('apiTokenInput').value.trim();
         const model = document.getElementById('modelInput').value.trim();
 
-        saveApiConfig(url, token, model);
+        const persisted = await saveApiConfig(url, token, model);
 
         settingsModal.classList.remove('open');
-        showFloatingNotification('配置已保存！');
+        showFloatingNotification(
+            persisted ? '配置已保存！' : '已保存到浏览器，但写入 .env 失败'
+        );
     });
 
     document.getElementById('resetSettingsBtn').addEventListener('click', () => {

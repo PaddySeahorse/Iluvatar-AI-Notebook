@@ -155,7 +155,8 @@ OPENI_API_TOKEN=your_api_token_here
 OPENI_API_MODEL=dsv4
 ```
 
-也可以在启动后通过 UI 设置面板配置。
+也可以在启动后通过 **UI 设置面板**配置（右上角「设置」）：
+填写 API URL / Token / Model 后点击「保存」，配置会**自动写入项目根目录的 `.env` 文件**（同时同步运行时默认值，无需重启），并保存在浏览器 localStorage。
 
 如需限制跨域来源，可额外配置：
 
@@ -200,6 +201,7 @@ npx playwright test e2e/p3-completion-inspect.spec.mjs
 | :--- | :--- | :--- |
 | `/` | GET | 主页面 |
 | `/api/get_config` | GET | 获取默认 API 配置 |
+| `/api/save_config` | POST | 持久化 LLM API 配置（Url/Token/Model）至项目 `.env` 并同步运行时默认值 |
 | `/api/run_cell` | POST | 同步执行 Python 代码（兼容旧 API 格式） |
 | `/api/run_cell_stream` | POST | 流式执行代码，通过 SSE 实时推送 stdout/stderr/富媒体（P2 新增） |
 | `/api/interrupt_kernel` | POST | 中断当前代码执行（control 通道 + GPU 专用中断） |
