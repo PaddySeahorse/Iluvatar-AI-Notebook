@@ -14,6 +14,8 @@
 - **实时 GPU 遥测** — 顶部仪表板实时展示天数智芯 GPU 的使用率、显存、温度、功耗等关键指标（通过 pynvml 获取真实硬件数据）
 - **AI Copilot** — 代码单元内嵌 AI 输入框，一键生成代码；运行错误时可一键 AI 诊断
 - **AI Chat 助手** — 右侧对话面板支持流式输出，可选择携带 Notebook 全部上下文
+- **ReAct Agent 助手** — AI Chat 升级为轻量 ReAct 代理：可调用工具执行内核代码单元、查询变量表与 GPU 状态、列出/读取 Notebook 文件，再基于工具结果作答；自动探测 LLM 是否支持 function calling，不支持时降级为文本 JSON 协议
+- **结构化上下文** — 将"全量灌入 Notebook 代码"替换为紧凑的内核快照（活动变量表 + 最近 Out 结果 + 最近错误栈摘要），更省 token 且直指运行时状态
 - **暗色/亮色主题** — 一键切换，适配不同使用场景
 - **图表捕获** — 自动捕获 Matplotlib 生成的图表并以 Base64 形式内嵌展示
 - **内核中断** — 通过 jupyter_client control 通道中断，即使 GPU 算子阻塞 shell 也能生效；天数智芯 GPU 还能用 `ixuca-smi --kill-compute` 专用中断
@@ -48,7 +50,10 @@
 ├── core/                  # 后端核心逻辑（模块化，ISSUE-007 refactor）
 │   ├── __init__.py
 │   ├── errors.py          # 自定义异常层次（AppError / KernelError / FileStorageError / UpstreamAPIError）
-│   ├── kernel.py          # KernelManager — 基于 jupyter_client + ipykernel 的内核管理（含 watchdog）
+│   ├── kernel.py          # KernelManager — 基于 jupyter_client + ipykernel 的内核管理（含 watchdog + 错误记录）
+│   ├── context.py         # 结构化上下文构建器（变量表 / 最近 Out / 最近错误栈）
+│   ├── tools.py           # ReAct Agent 工具注册表与执行（run_cell / 变量 / 文件 / GPU / 内核状态）
+│   ├── agent.py           # 轻量 ReAct 循环（function calling + 文本 JSON 双协议）
 │   ├── gpu.py             # 天数智芯 GPU 遥测（pynvml / IXUCA SDK）
 │   ├── iluvatar_provisioner.py  # 自定义 KernelProvisioner，GPU 资源分配与专用中断
 │   ├── utils.py           # 通用工具（is_safe_path 路径校验）
@@ -58,6 +63,7 @@
 │       ├── gpu_routes.py      # GPU 状态
 │       ├── kernel_routes.py   # 代码执行 / 流式 SSE / 中断 / 补全 / 内省 / 变量
 │       ├── ai_routes.py       # API 配置与 AI 代理调用（流式 + 非流式）
+│       ├── agent_routes.py    # ReAct Agent 调用（/api/agent_call）与结构化上下文（/api/context）
 │       ├── lint_routes.py     # 静态代码检查（AST 分析）
 │       └── file_routes.py     # Notebook 文件管理
 ├── kernels/
@@ -200,6 +206,8 @@ npx playwright test e2e/p3-completion-inspect.spec.mjs
 | :--- | :--- | :--- |
 | `/api/gpu_status` | GET | 获取 GPU 实时遥测数据（利用率、显存、温度、功耗） |
 | `/api/ai_call` | POST | 代理调用 LLM API（支持流式与非流式） |
+| `/api/context` | GET | 获取内核结构化上下文（变量表 + 最近 Out + 最近错误摘要） |
+| `/api/agent_call` | POST | 运行 ReAct Agent，SSE 流式返回工具调用/结果与最终回答 |
 
 ### 文件管理
 
@@ -333,7 +341,7 @@ data: [DONE]
 
 - **Copilot**：代码单元底部的 AI 输入框，描述需求即可生成代码
 - **Debug**：代码运行失败后，点击「🔧 AI Debug」自动分析错误
-- **Chat**：右侧对话面板进行自由问答，可勾选「附加 Notebook 上下文」，支持流式输出
+- **Chat（ReAct Agent）**：右侧对话面板进行自由问答，AI 可调用工具（执行代码、查 GPU/变量/文件）后作答，支持流式输出与工具调用过程展示
 - **代码检查**：代码单元输入时自动进行静态分析，标记语法错误和未定义变量
 
 ### 变量查看器
@@ -344,6 +352,13 @@ data: [DONE]
 ---
 
 ## 📋 更新日志
+
+### ReAct Agent 与结构化上下文（2026-08）
+
+- **ReAct Agent** — AI Chat 升级为轻量 ReAct 代理，新增 `core/agent.py`（循环/双协议）、`core/tools.py`（6 个工具注册表）与 `/api/agent_call` SSE 端点；自动探测 LLM 是否支持 function calling，不支持时降级为文本 JSON 协议
+- **结构化上下文** — 新增 `core/context.py` 与 `/api/context`，将"全量灌入 Notebook 代码"替换为内核快照（变量表 + 最近 Out + 最近错误栈）；内核错误摘要由 `core/kernel.py` 记录
+- **智能工具** — Agent 可执行代码单元（`run_cell`）、查变量表（`get_variables`）、列/读 Notebook（`list_files`/`read_nb`）、查 GPU（`gpu_status`）与内核状态（`kernel_status`）；前端 `main.js` 渲染工具调用过程
+- **测试** — 新增 `tests/unit/test_agent.py`、`test_context.py`、`test_tools.py` 与 `tests/js/agent-stream.test.mjs`
 
 ### 里程碑 · P0–P4：内核迁移（2026-07）
 

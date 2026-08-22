@@ -21,6 +21,7 @@ import json
 import queue as _queue
 import threading
 import logging
+from collections import deque
 from typing import Optional, Generator, Dict, Any, List
 
 from jupyter_client import KernelManager as JupyterKernelManager
@@ -53,6 +54,7 @@ class KernelManager:
         self._execution_lock = threading.Lock()
         self._warm_started = False
         self._cached_variables: List[Dict] = []
+        self._recent_errors = deque(maxlen=10)
         self._watchdog_thread: Optional[threading.Thread] = None
         self._watchdog_stop = threading.Event()
         self._restarting = False
@@ -214,10 +216,12 @@ class KernelManager:
                 except _queue.Empty:
                     result['success'] = False
                     result['stderr'] += '\n[Timeout: kernel did not respond]'
+                    self._record_error('TimeoutError', 'kernel did not respond within timeout', [])
                     break
                 except Exception as e:
                     result['success'] = False
                     result['stderr'] += f'\n[Kernel communication error: {e}]'
+                    self._record_error('KernelError', str(e), [])
                     break
 
                 parent_id = msg.get('parent_header', {}).get('msg_id', '')
@@ -257,6 +261,11 @@ class KernelManager:
                     result['success'] = False
                     traceback_list = content.get('traceback', [])
                     result['stderr'] += '\n'.join(traceback_list)
+                    self._record_error(
+                        content.get('ename', 'Error'),
+                        content.get('evalue', ''),
+                        traceback_list,
+                    )
                 elif msg_type == 'status':
                     if content.get('execution_state') == 'idle':
                         break
@@ -314,6 +323,7 @@ class KernelManager:
                         "evalue": "Kernel did not respond within timeout",
                         "traceback": [],
                     }
+                    self._record_error('TimeoutError', 'kernel did not respond within timeout', [])
                     return
                 except Exception as e:
                     yield {
@@ -322,6 +332,7 @@ class KernelManager:
                         "evalue": str(e),
                         "traceback": [],
                     }
+                    self._record_error('KernelError', str(e), [])
                     return
 
                 parent_id = msg.get('parent_header', {}).get('msg_id', '')
@@ -356,6 +367,11 @@ class KernelManager:
                         "evalue": content.get("evalue", ""),
                         "traceback": content.get("traceback", []),
                     }
+                    self._record_error(
+                        content.get('ename', 'Error'),
+                        content.get('evalue', ''),
+                        content.get('traceback', []),
+                    )
                 elif msg_type == 'status':
                     yield {
                         "type": "status",
@@ -481,6 +497,79 @@ class KernelManager:
     def get_variables(self) -> List[Dict]:
         """Return cached variables."""
         return list(self._cached_variables)
+
+    # ------------------------------------------------------------------ #
+    #  Recent errors (for structured AI context)                          #
+    # ------------------------------------------------------------------ #
+
+    def _record_error(self, ename: str, evalue: str, traceback_lines) -> None:
+        """Store a compact summary of the most recent kernel errors.
+
+        Used by the AI agent/context builder to give the LLM a concise
+        snapshot of what failed instead of the full notebook source.
+        """
+        lines = [ln for ln in (traceback_lines or []) if isinstance(ln, str)]
+        summary = '\n'.join(lines[-12:])
+        if len(summary) > 2000:
+            summary = summary[-2000:]
+        self._recent_errors.append({
+            'title': f"{ename}: {evalue}" if ename else evalue,
+            'summary': summary,
+        })
+
+    def get_recent_errors(self) -> List[Dict]:
+        """Return the most recent error summaries (newest first)."""
+        return list(reversed(self._recent_errors))
+
+    # ------------------------------------------------------------------ #
+    #  Recent outputs (for structured AI context)                         #
+    # ------------------------------------------------------------------ #
+
+    def fetch_recent_outputs(self, n: int = 6, max_repr_len: int = 300) -> Dict[str, str]:
+        """Return the last *n* entries of the kernel's ``Out`` dict.
+
+        Runs a temporary snippet in the kernel, then removes its temporaries
+        from the global namespace. Returns ``{execution_count: repr}`` ordered
+        oldest-first; falls back to ``{}`` on any failure.
+        """
+        if self._kc is None:
+            return {}
+        n = max(1, int(n))
+        snippet = (
+            "import json as _j\n"
+            f"_o_items = list(Out.items())[-{n}:]\n"
+            "_o_out = {}\n"
+            "for _k, _v in _o_items:\n"
+            "    try:\n"
+            "        _r = repr(_v)\n"
+            f"        if len(_r) > {max_repr_len}: _r = _r[:{max_repr_len}] + '...'\n"
+            "    except Exception:\n"
+            "        _r = '<unevaluable>'\n"
+            "    _o_out[str(_k)] = _r\n"
+            "print(_j.dumps(_o_out))"
+        )
+        msg_id = self._kc.execute(snippet, store_history=False)
+        output = ''
+        while True:
+            try:
+                msg = self._kc.iopub_channel.get_msg(timeout=10)
+            except _queue.Empty:
+                break
+            except Exception:
+                break
+            parent_id = msg.get('parent_header', {}).get('msg_id', '')
+            if parent_id != msg_id:
+                continue
+            msg_type = msg.get('msg_type', '')
+            content = msg.get('content', {})
+            if msg_type == 'stream' and content.get('name') == 'stdout':
+                output += content.get('text', '')
+            elif msg_type == 'status' and content.get('execution_state') == 'idle':
+                break
+        try:
+            return json.loads(output.strip())
+        except (json.JSONDecodeError, ValueError):
+            return {}
 
     def set_variables(self, variables):
         """Set cached variables."""

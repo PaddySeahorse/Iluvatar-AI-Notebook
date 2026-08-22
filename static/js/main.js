@@ -20,6 +20,8 @@ import {
     fetchGpuStatus,
     callLlmProxy,
     callLlmProxyStream,
+    callAgentStream,
+    fetchAgentContext,
     lintCellOnBackend,
     fetchKernelVariables,
     fetchNotebooksList,
@@ -1234,7 +1236,7 @@ async function runCellDebug(id, buttonElement) {
     }
 }
 
-// Sidebar Chat Flow
+// Sidebar Chat Flow — routed through the ReAct agent (React + Tool use).
 async function sendChatMessage() {
     const chatInput = document.getElementById('chatInput');
     const query = chatInput ? chatInput.value.trim() : '';
@@ -1243,38 +1245,16 @@ async function sendChatMessage() {
     chatInput.value = '';
     appendChatMessage('user', query);
 
-    // Build chat message payload
-    const systemPrompt = `你是一个天数智芯 (Iluvatar Corex) 智能笔记本平台的 AI 助手。
-你的目标是解答关于国产 AI 芯片架构、PyTorch/TensorFlow 开发调试，以及通用 Python 编程的问题。
-如果用户要求编写代码，请务必保证代码规范，并优先适配天数智芯的加速卡（可兼容 PyTorch 的 cuda 库或常规 Python 库）。`;
+    // Conversation history prior to this turn (excludes the query itself).
+    const history = window._agentChatHistory || [];
 
-    const messages = [
-        { role: 'system', content: systemPrompt }
-    ];
-
-    // Read context if checked
     const includeContextEl = document.getElementById('includeContextCheckbox');
     const includeContext = includeContextEl ? includeContextEl.checked : false;
-    if (includeContext && state.cells.length > 0) {
-        let contextText = "以下是当前 Notebook 中的所有单元格代码与执行输出，供你参考：\n\n";
-        state.cells.forEach((c, i) => {
-            contextText += `[单元格 ${i+1}] (类型: ${c.type})\n`;
-            contextText += `--- 代码/内容 ---\n${c.content}\n`;
-            if (c.output) {
-                if (c.output.stdout) contextText += `--- 标准输出 ---\n${c.output.stdout}\n`;
-                if (c.output.stderr) contextText += `--- 报错输出 ---\n${c.output.stderr}\n`;
-            }
-            contextText += '\n';
-        });
-        messages.push({ role: 'user', content: contextText });
-    }
-
-    messages.push({ role: 'user', content: query });
 
     // Add thinking loader
     const loaderId = 'loader_' + Math.random().toString(36).substr(2, 9);
     const chatHistory = document.getElementById('chatHistory');
-    
+
     const loaderMsg = document.createElement('div');
     loaderMsg.className = 'chat-message assistant';
     loaderMsg.id = loaderId;
@@ -1290,32 +1270,154 @@ async function sendChatMessage() {
     }
 
     let streamMessage = null;
+    let assistantBlock = null;
+    let toolLogEl = null;
+    const toolLogs = [];
+
+    const ensureAssistantBlock = () => {
+        if (assistantBlock) return assistantBlock;
+        assistantBlock = document.createElement('div');
+        assistantBlock.className = 'chat-message assistant agent-assistant-block';
+        assistantBlock.innerHTML = `
+            <div class="chat-avatar"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
+            <div class="chat-bubble"></div>
+        `;
+        if (chatHistory) {
+            chatHistory.appendChild(assistantBlock);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+        return assistantBlock;
+    };
+
+    const appendToolLog = (name, summary, ok) => {
+        const block = ensureAssistantBlock();
+        toolLogs.push({ name, summary, ok });
+        if (toolLogEl && toolLogEl.parentNode) toolLogEl.parentNode.removeChild(toolLogEl);
+        toolLogEl = document.createElement('div');
+        toolLogEl.className = 'agent-tool-log';
+        let html = '';
+        toolLogs.forEach((t) => {
+            const icon = t.ok ? 'fa-check' : 'fa-triangle-exclamation';
+            html += `<div class="agent-tool-log-item"><i class="fa-solid ${icon}" aria-hidden="true"></i><span class="agent-tool-name">${t.name}</span><span class="agent-tool-summary">${escapeHtml(t.summary)}</span></div>`;
+        });
+        toolLogEl.innerHTML = html;
+        block.querySelector('.chat-bubble').appendChild(toolLogEl);
+        if (chatHistory) chatHistory.scrollTop = chatHistory.scrollHeight;
+    };
+
+    const removeLoader = () => {
+        const loader = document.getElementById(loaderId);
+        if (loader) loader.remove();
+    };
+
+    const failWith = (message) => {
+        removeLoader();
+        appendChatMessage('assistant', `⚠️ 交互出错：${message}\n请检查您的网络以及在 [设置] 中检查您的 API Endpoint 或 Access Token。`);
+    };
 
     try {
-        await callLlmProxyStream(
-            messages,
-            (chunkText) => {
-                if (!streamMessage) {
-                    const loader = document.getElementById(loaderId);
-                    if (loader) loader.remove();
-                    streamMessage = appendStreamingChatMessage('assistant');
+        await callAgentStream(
+            {
+                query,
+                messages: history,
+                includeContext,
+                maxSteps: 6
+            },
+            {
+                onStatus: () => {},
+                onToolCall: (evt) => {
+                    appendToolLog(evt.label || evt.name, '调用中…', true);
+                },
+                onToolResult: (evt) => {
+                    appendToolLog(evt.label || evt.name, evt.summary || '完成', evt.ok);
+                },
+                onContent: (chunkText) => {
+                    removeLoader();
+                    if (!streamMessage) {
+                        const block = ensureAssistantBlock();
+                        streamMessage = appendStreamingBlock(block, chunkText);
+                    } else {
+                        streamMessage.update(chunkText);
+                    }
+                },
+                onError: (evt) => {
+                    removeLoader();
+                },
+                onDone: (finalText) => {
+                    removeLoader();
+                    finalText = finalText || '（助手没有返回内容）';
+                    if (streamMessage) streamMessage.update(finalText);
+                    else appendChatMessage('assistant', finalText);
+                    window._agentChatHistory = (window._agentChatHistory || []).concat([
+                        { role: 'user', content: query },
+                        { role: 'assistant', content: finalText }
+                    ]);
                 }
-                streamMessage.update(chunkText);
             }
         );
     } catch (e) {
-        console.warn("Streaming chat failed, falling back to non-streaming:", e);
+        console.warn("Agent chat failed, falling back to plain chat:", e);
+        removeLoader();
+        const plainMessages = [
+            { role: 'system', content: `你是一个天数智芯 (Iluvatar Corex) 智能笔记本平台的 AI 助手。
+你的目标是解答关于国产 AI 芯片架构、PyTorch/TensorFlow 开发调试，以及通用 Python 编程的问题。
+如果用户要求编写代码，请务必保证代码规范，并优先适配天数智芯的加速卡（可兼容 PyTorch 的 cuda 库或常规 Python 库）。` }
+        ];
+        if (includeContext) {
+            try {
+                const ctx = await fetchAgentContext();
+                plainMessages.push({ role: 'user', content: renderContextForPrompt(ctx) });
+            } catch (ctxErr) {
+                console.warn("Fetch context failed after agent fallback:", ctxErr);
+            }
+        }
+        plainMessages.push({ role: 'user', content: query });
+
         try {
-            const reply = await callLlmProxy(messages);
-            const loader = document.getElementById(loaderId);
-            if (loader) loader.remove();
-            appendChatMessage('assistant', reply);
-        } catch (fallbackErr) {
-            const loader = document.getElementById(loaderId);
-            if (loader) loader.remove();
-            appendChatMessage('assistant', `⚠️ 交互出错：${fallbackErr.message}\n请检查您的网络以及在 [设置] 中检查您的 API Endpoint 或 Access Token。`);
+            await callLlmProxyStream(
+                plainMessages,
+                (chunkText) => {
+                    removeLoader();
+                    if (!streamMessage) streamMessage = appendStreamingChatMessage('assistant');
+                    streamMessage.update(chunkText);
+                }
+            );
+        } catch (secondErr) {
+            console.warn("Streaming fallback failed, using non-streaming:", secondErr);
+            try {
+                const reply = await callLlmProxy(plainMessages);
+                removeLoader();
+                appendChatMessage('assistant', reply);
+            } catch (thirdErr) {
+                failWith(thirdErr.message);
+            }
         }
     }
+}
+
+// Render a structured-context object into a short prompt block.
+function renderContextForPrompt(ctx) {
+    let parts = ['以下是当前内核实时采集的结构化上下文，供你参考：'];
+    if (ctx && Array.isArray(ctx.variables) && ctx.variables.length) {
+        const lines = ctx.variables.map(v => `- ${v.name} (${v.type}${v.shape ? ' shape=' + v.shape : ''}): ${v.repr}`);
+        parts.push('活动变量：\n' + lines.join('\n'));
+    }
+    const outputs = (ctx && ctx.recent_outputs) || {};
+    const outKeys = Object.keys(outputs);
+    if (outKeys.length) {
+        const lines = outKeys.sort((a, b) => parseInt(a) - parseInt(b)).map(k => `[Out ${k}] ${outputs[k]}`);
+        parts.push('最近的输出：\n' + lines.join('\n'));
+    }
+    if (ctx && Array.isArray(ctx.recent_errors) && ctx.recent_errors.length) {
+        ctx.recent_errors.forEach(e => parts.push(`最近错误：${e.title}\n${e.summary || ''}`));
+    }
+    return parts.join('\n\n');
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
 }
 
 // Extracted & Deduplicated Code Block Actions Binder
@@ -1412,6 +1514,23 @@ function appendStreamingChatMessage(sender) {
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }
     };
+}
+
+// Append a streaming answer block *inside* an existing assistant message
+// (below its tool logs) and return a streaming updater for it.
+function appendStreamingBlock(assistantBlock, initialText) {
+    const chatHistory = document.getElementById('chatHistory');
+    const streamingBox = document.createElement('div');
+    streamingBox.className = 'streaming-text';
+    assistantBlock.querySelector('.chat-bubble').appendChild(streamingBox);
+
+    const render = (text) => {
+        streamingBox.innerHTML = parseMarkdown(text);
+        attachCodeBlockActions(streamingBox);
+        if (chatHistory) chatHistory.scrollTop = chatHistory.scrollHeight;
+    };
+    render(initialText);
+    return { update: render };
 }
 
 // Save cell execution details to localStorage history log

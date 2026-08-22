@@ -291,3 +291,104 @@ export async function deleteNotebookFromServer(filename) {
     return await res.json();
 }
 
+// Fetch the structured kernel context (variables + recent outputs + recent
+// errors) used to build a smart prompt instead of dumping the whole notebook.
+export async function fetchAgentContext() {
+    const res = await fetch('/api/context');
+    if (!res.ok) throw new Error('Failed to fetch context');
+    return await res.json();
+}
+
+// Parse a single `data: <json>` SSE line from the agent stream into an event
+// object, or null when the line is not a usable JSON data payload (this also
+// ignores comments, event: lines and the [DONE] sentinel).
+export function parseAgentEventLine(line) {
+    const clean = String(line || '').trim();
+    if (!clean) return null;
+    if (clean === 'data: [DONE]') return null;
+    if (!clean.startsWith('data: ')) return null;
+    try {
+        return JSON.parse(clean.substring(6));
+    } catch (e) {
+        return null;
+    }
+}
+
+// Stream a ReAct agent run. Handles the SSE ``/api/agent_call`` event stream:
+//   {"type":"status"|"tool_call"|"tool_result"|"content"|"error"|"done", ...}
+// ``handlers`` is an object of optional event callbacks.
+export async function callAgentStream({ query, messages, includeContext, maxSteps }, handlers = {}) {
+    const res = await fetch('/api/agent_call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            url: apiConfig.url,
+            token: apiConfig.token,
+            model: apiConfig.model,
+            query,
+            messages,
+            include_context: includeContext,
+            max_steps: maxSteps
+        })
+    });
+
+    if (!res.ok) {
+        let msg = `HTTP error ${res.status}`;
+        try {
+            const errJson = await res.json();
+            msg = errJson.message || msg;
+        } catch (e) { /* ignore */ }
+        throw new Error(msg);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let finalText = '';
+
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                const evt = parseAgentEventLine(line);
+                if (!evt) continue;
+                if (handlers.onEvent) {
+                    const keep = handlers.onEvent(evt);
+                    if (keep === false) return;
+                }
+                switch (evt.type) {
+                    case 'status':
+                        if (handlers.onStatus) handlers.onStatus(evt);
+                        break;
+                    case 'tool_call':
+                        if (handlers.onToolCall) handlers.onToolCall(evt);
+                        break;
+                    case 'tool_result':
+                        if (handlers.onToolResult) handlers.onToolResult(evt);
+                        break;
+                    case 'content':
+                        finalText += evt.text || '';
+                        if (handlers.onContent) handlers.onContent(finalText);
+                        break;
+                    case 'error':
+                        if (handlers.onError) handlers.onError(evt);
+                        break;
+                    case 'done':
+                        finalText = evt.final || finalText;
+                        if (handlers.onDone) handlers.onDone(finalText);
+                        break;
+                }
+            }
+        }
+        return finalText;
+    } catch (e) {
+        reader.cancel();
+        throw e;
+    }
+}
+

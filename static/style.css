@@ -963,6 +963,51 @@ body {
     gap: 20px;
 }
 
+/* ReAct agent: tool-call log rendered above the streamed answer */
+.agent-tool-log {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border-color);
+    font-size: 0.78rem;
+}
+
+.agent-tool-log-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+}
+
+.agent-tool-log-item .fa-check {
+    color: var(--accent-green, #22c55e);
+}
+
+.agent-tool-log-item .fa-triangle-exclamation {
+    color: var(--accent-warn, #f59e0b);
+}
+
+.agent-tool-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-surface-active);
+}
+
+.agent-tool-summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 70%;
+}
+
+.streaming-text {
+    display: block;
+}
+
 .chat-message {
     display: flex;
     gap: 12px;

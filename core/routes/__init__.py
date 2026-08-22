@@ -48,6 +48,7 @@ def register_routes(app):
     from .ai_routes import bp as ai_bp
     from .lint_routes import bp as lint_bp
     from .file_routes import bp as file_bp
+    from .agent_routes import bp as agent_bp
 
     app.register_blueprint(static_bp)
     app.register_blueprint(gpu_bp)
@@ -55,3 +56,4 @@ def register_routes(app):
     app.register_blueprint(ai_bp)
     app.register_blueprint(lint_bp)
     app.register_blueprint(file_bp)
+    app.register_blueprint(agent_bp)
