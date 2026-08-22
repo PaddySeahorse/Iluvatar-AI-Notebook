@@ -35,7 +35,7 @@
 | **后端** | Python / Flask |
 | **前端** | HTML5 + CSS3 + Vanilla JavaScript |
 | **运行时** | jupyter_client + ipykernel（ZMQ 五通道协议，持久化全局命名空间） |
-| **AI 集成** | OpenAI 兼容 API（支持 DeepSeek 等模型） |
+| **AI 集成** | OpenAI 兼容 API（支持 DeepSeek 等模型），可选 LiteLLM 统一网关 |
 | **GPU 集成** | 天数智芯 IXUCA SDK + 自定义 KernelProvisioner |
 | **图标** | Font Awesome |
 | **字体** | Inter + Fira Code |
@@ -54,6 +54,7 @@
 │   ├── context.py         # 结构化上下文构建器（变量表 / 最近 Out / 最近错误栈）
 │   ├── tools.py           # ReAct Agent 工具注册表与执行（run_cell / 变量 / 文件 / GPU / 内核状态）
 │   ├── agent.py           # 轻量 ReAct 循环（function calling + 文本 JSON 双协议）
+│   ├── llm.py             # LLM 传输层：优先 LiteLLM，未安装时降级为原生 requests
 │   ├── gpu.py             # 天数智芯 GPU 遥测（pynvml / IXUCA SDK）
 │   ├── iluvatar_provisioner.py  # 自定义 KernelProvisioner，GPU 资源分配与专用中断
 │   ├── utils.py           # 通用工具（is_safe_path 路径校验）
@@ -120,6 +121,14 @@
 ```bash
 pip install flask flask-cors matplotlib requests pynvml pytest
 ```
+
+> **可选 — LiteLLM 网关**：安装 `litellm` 后，LLM 调用自动统一走 LiteLLM（provider 归一化、限流/超时/鉴权错误分类等），未安装时透明降级为原生 `requests`，无需任何代码改动。
+>
+> ```bash
+> pip install litellm
+> ```
+>
+> 可用 `USE_LITELLM=0` 强制禁用（`USE_LITELLM=1` 强制启用；不设置时自动检测）。
 
 ### 开发环境配置
 
@@ -356,6 +365,7 @@ data: [DONE]
 ### ReAct Agent 与结构化上下文（2026-08）
 
 - **ReAct Agent** — AI Chat 升级为轻量 ReAct 代理，新增 `core/agent.py`（循环/双协议）、`core/tools.py`（6 个工具注册表）与 `/api/agent_call` SSE 端点；自动探测 LLM 是否支持 function calling，不支持时降级为文本 JSON 协议
+- **LiteLLM 网关** — LLM 传输层拆分至 `core/llm.py`：安装 `litellm` 后自动统一走 LiteLLM（模型 provider 前缀归一化、错误分类），未安装则透明降级为原生 `requests`；`USE_LITELLM=0/1` 可强制开关
 - **结构化上下文** — 新增 `core/context.py` 与 `/api/context`，将"全量灌入 Notebook 代码"替换为内核快照（变量表 + 最近 Out + 最近错误栈）；内核错误摘要由 `core/kernel.py` 记录
 - **智能工具** — Agent 可执行代码单元（`run_cell`）、查变量表（`get_variables`）、列/读 Notebook（`list_files`/`read_nb`）、查 GPU（`gpu_status`）与内核状态（`kernel_status`）；前端 `main.js` 渲染工具调用过程
 - **测试** — 新增 `tests/unit/test_agent.py`、`test_context.py`、`test_tools.py` 与 `tests/js/agent-stream.test.mjs`

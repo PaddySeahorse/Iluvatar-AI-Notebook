@@ -66,11 +66,11 @@ def _run(monkeypatch, *, nostream_replies, stream_chunks=('Hello', ' world'), pr
     """Run the agent loop with fully mocked LLM transports; return events list."""
     calls = []
 
-    def fake_nostream(url, token, model, messages, tools, timeout=60):
+    def fake_nostream(url, token, model, messages, tools, timeout=60, backend=None):
         calls.append(('nostream', url, token, model, bool(tools), len(messages)))
         return nostream_replies[len(calls) - 1]
 
-    def fake_stream(url, token, model, messages, timeout=180):
+    def fake_stream(url, token, model, messages, timeout=180, backend=None):
         yield from stream_chunks
 
     monkeypatch.setattr(agent_module, 'probe_tool_support', lambda *a, **k: probe)
@@ -156,7 +156,7 @@ def test_max_steps_guard(monkeypatch):
 
 
 def test_llm_failure_yields_error_event(monkeypatch):
-    def failing(url, token, model, messages, tools, timeout=60):
+    def failing(url, token, model, messages, tools, timeout=60, backend=None):
         raise agent_module.AgentError('API 返回 HTTP 500: boom')
 
     monkeypatch.setattr(agent_module, 'probe_tool_support', lambda *a, **k: True)
@@ -174,11 +174,11 @@ def test_llm_failure_yields_error_event(monkeypatch):
 def test_system_prompt_includes_structured_context(monkeypatch):
     captured = {}
 
-    def fake_nostream(url, token, model, messages, tools, timeout=60):
+    def fake_nostream(url, token, model, messages, tools, timeout=60, backend=None):
         captured['messages'] = messages
         return {'content': 'OK', 'tool_calls': None}
 
-    def fake_stream(url, token, model, messages, timeout=180):
+    def fake_stream(url, token, model, messages, timeout=180, backend=None):
         yield from ()
 
     monkeypatch.setattr(agent_module, 'probe_tool_support', lambda *a, **k: False)

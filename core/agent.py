@@ -29,9 +29,13 @@ answer round uses a streaming request for a typewriter-style response.
 import json
 import re
 
-import requests
-
 from core.context import build_context, context_to_text
+from core.llm import (
+    LLMError,
+    chat_nostream as llm_chat_nostream,
+    chat_stream as llm_chat_stream,
+    probe_tool_support as llm_probe_tool_support,
+)
 from core.tools import TOOL_DEFS, execute_tool, get_tool_schemas
 
 MAX_STEPS = 6
@@ -83,114 +87,29 @@ def build_tool_context(state_module) -> dict:
     }
 
 
-def probe_tool_support(url, token, model) -> bool:
+def probe_tool_support(url, token, model, backend=None) -> bool:
     """Return True when the endpoint accepts the OpenAI ``tools`` parameter.
 
     A lightweight single-shot probe with a tiny payload; any non-200 or
     parser rejection counts as unsupported so the loop falls back to text mode.
     """
-    headers = {'Content-Type': 'application/json'}
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
-    payload = {
-        'model': model,
-        'messages': [{'role': 'user', 'content': 'ping'}],
-        'max_tokens': 1,
-        'tools': [
-            {
-                'type': 'function',
-                'function': {
-                    'name': 'ping',
-                    'description': 'test',
-                    'parameters': {'type': 'object', 'properties': {}},
-                },
-            }
-        ],
-        'tool_choice': 'none',
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=REQUESTS_TIMEOUT)
-        if resp.status_code != 200:
-            return False
-        data = resp.json()
-        return 'choices' in data
-    except Exception:
-        return False
+    return llm_probe_tool_support(url, token, model, backend=backend)
 
 
-def _chat_nostream(url, token, model, messages, tools, timeout=REQUESTS_TIMEOUT) -> dict:
+def _chat_nostream(url, token, model, messages, tools, timeout=REQUESTS_TIMEOUT, backend=None) -> dict:
     """Blocking chat-completions call. Returns the assistant message dict."""
-    headers = {'Content-Type': 'application/json'}
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
-    payload = {
-        'model': model,
-        'messages': messages,
-        'temperature': 0.7,
-    }
-    if tools:
-        payload['tools'] = tools
-        payload['tool_choice'] = 'auto'
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-    except requests.exceptions.ConnectionError as e:
-        raise AgentError(f"无法连接 API 服务: {e}") from e
-    except requests.exceptions.Timeout as e:
-        raise AgentError("API 请求超时") from e
-    except requests.exceptions.RequestException as e:
-        raise AgentError(f"API 请求失败: {e}") from e
-    if resp.status_code != 200:
-        raise AgentError(f"API 返回 HTTP {resp.status_code}: {resp.text[:200]}")
-
-    try:
-        data = resp.json()
-        message = data['choices'][0]['message']
-        if isinstance(message, str):
-            return {'content': message, 'tool_calls': None}
-        return {
-            'content': message.get('content') or '',  # content may be None for tool calls
-            'tool_calls': message.get('tool_calls') or None,
-        }
-    except (ValueError, KeyError, IndexError, TypeError) as e:
-        raise AgentError(f"API 响应格式无法解析: {e}") from e
+        return llm_chat_nostream(url, token, model, messages, tools=tools, timeout=timeout, backend=backend)
+    except LLMError as e:
+        raise AgentError(str(e)) from e
 
 
-def _chat_stream(url, token, model, messages, timeout=STREAM_TIMEOUT):
+def _chat_stream(url, token, model, messages, timeout=STREAM_TIMEOUT, backend=None):
     """Streaming chat-completions call; yields text deltas."""
-    headers = {'Content-Type': 'application/json'}
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
-    payload = {
-        'model': model,
-        'messages': messages,
-        'temperature': 0.7,
-        'stream': True,
-    }
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=timeout, stream=True)
-    except requests.exceptions.RequestException as e:
-        raise AgentError(f"API 流式请求失败: {e}") from e
-    if resp.status_code != 200:
-        raise AgentError(f"API 返回 HTTP {resp.status_code}: {resp.text[:200]}")
-
-    for raw_line in resp.iter_lines():
-        if not raw_line:
-            continue
-        line = raw_line.decode('utf-8', errors='replace').strip()
-        if line.startswith('data: '):
-            line = line[len('data: '):]
-        if line == '[DONE]':
-            break
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        delta = (obj.get('choices') or [{}])[0].get('delta') or {}
-        text = delta.get('content') or ''
-        if text:
-            yield text
+        yield from llm_chat_stream(url, token, model, messages, timeout=timeout, backend=backend)
+    except LLMError as e:
+        raise AgentError(str(e)) from e
 
 
 def _normalize_tool_calls(message: dict):
@@ -257,16 +176,18 @@ def agent_loop(
     state_module,
     max_steps=MAX_STEPS,
     use_tools_probe=True,
+    backend=None,
 ):
     """Run the ReAct loop; yields SSE-ready event dicts.
 
     ``use_tools_probe`` exists for tests to force function-calling or text
-    protocol shortcuts without network access.
+    protocol shortcuts without network access.  ``backend`` forces the LLM
+    transport ("litellm" or "requests"); ``None`` auto-selects.
     """
     tool_schemas = get_tool_schemas()
     tool_context = build_tool_context(state_module)
 
-    use_tools = bool(use_tools_probe) and probe_tool_support(url, token, model)
+    use_tools = bool(use_tools_probe) and probe_tool_support(url, token, model, backend=backend)
     system_prompt = _FUNCTION_SYSTEM if use_tools else _TEXT_PROTOCOL_SYSTEM
 
     if include_context:
@@ -290,7 +211,8 @@ def agent_loop(
     for step in range(max_steps):
         try:
             reply = _chat_nostream(
-                url, token, model, messages, tools=(tool_schemas if use_tools else None)
+                url, token, model, messages, tools=(tool_schemas if use_tools else None),
+                backend=backend,
             )
         except AgentError as e:
             yield {'type': 'error', 'message': str(e)}
@@ -356,7 +278,7 @@ def agent_loop(
         messages.append({'role': 'assistant', 'content': content})
         try:
             full = []
-            for delta in _chat_stream(url, token, model, messages):
+            for delta in _chat_stream(url, token, model, messages, backend=backend):
                 full.append(delta)
                 yield {'type': 'content', 'text': delta}
             final = content + ''.join(full)

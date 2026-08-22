@@ -56,6 +56,7 @@ def agent_call():
     messages = data.get('messages') or []
     include_context = bool(data.get('include_context', True))
     max_steps = int(data.get('max_steps', 6) or 6)
+    backend = data.get('backend') or None
 
     if not query.strip():
         return jsonify({'error': True, 'error_code': 'EMPTY_QUERY', 'message': 'Empty query'}), 400
@@ -70,6 +71,7 @@ def agent_call():
             include_context=include_context,
             state_module=s,
             max_steps=max_steps,
+            backend=backend,
         ):
             yield f'data: {json.dumps(event, ensure_ascii=False)}\n\n'
         yield 'data: [DONE]\n\n'
