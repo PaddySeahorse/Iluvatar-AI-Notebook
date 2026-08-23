@@ -13,14 +13,33 @@ state at request time without ``import app`` cycles.
 
 import os
 import sys
+import time
+import logging
 import atexit
 
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 
 from core.kernel import KernelManager
 from core.routes import register_routes, register_error_handlers
 from core.utils import is_safe_path as _is_safe_path_impl
+from core.observability import (
+    configure_logging,
+    get_metrics,
+    get_trace_id,
+    new_trace_id,
+    set_trace_id,
+)
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Structured logging (JSON lines) + log level from LOG_LEVEL env var
+# ---------------------------------------------------------------------------
+_log_level = getattr(
+    logging, os.environ.get('LOG_LEVEL', 'INFO').upper(), logging.INFO
+)
+configure_logging(level=_log_level)
 
 # ---------------------------------------------------------------------------
 # Configuration (.env loaded manually to avoid hardcoding API secrets)
@@ -79,6 +98,40 @@ def is_safe_path(path):
 # the module-level state above (kernel_manager / WORKSPACE_DIR / is_safe_path)
 # without importing ``app`` (which would double-init under `python app.py`).
 app.config['_STATE_MODULE'] = sys.modules[__name__]
+
+# ---------------------------------------------------------------------------
+# Request tracing: generate/ propagate a trace id, log it and expose it via
+# the X-Request-ID response header so failures can be correlated across logs.
+# ---------------------------------------------------------------------------
+@app.before_request
+def _begin_request_trace():
+    trace_id = request.headers.get('X-Request-ID') or new_trace_id()
+    set_trace_id(trace_id)
+    request.environ['_request_started'] = time.monotonic()
+
+
+@app.after_request
+def _finish_request_trace(response):
+    trace_id = get_trace_id()
+    response.headers['X-Request-ID'] = trace_id or ''
+    duration_ms = int(
+        (time.monotonic() - request.environ.get('_request_started', time.monotonic()))
+        * 1000
+    )
+    logger.info(
+        'http_request',
+        extra={
+            'trace_id': trace_id,
+            'method': request.method,
+            'path': request.path,
+            'status': response.status_code,
+            'duration_ms': duration_ms,
+            'remote_addr': request.remote_addr or '',
+        },
+    )
+    get_metrics().record_http_request(request.method, request.path, response.status_code)
+    return response
+
 
 # ---------------------------------------------------------------------------
 # Wire up error handlers and routes

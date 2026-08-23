@@ -20,11 +20,14 @@ import os
 import json
 import queue as _queue
 import threading
+import time
 import logging
 from collections import deque
 from typing import Optional, Generator, Dict, Any, List
 
 from jupyter_client import KernelManager as JupyterKernelManager
+
+from core.observability import get_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,7 @@ class KernelManager:
         self._kc = self._km.client()
         self._kc.start_channels()
         self._kc.wait_for_ready(timeout=60)
+        get_metrics().record_kernel_start()
         logger.info("Kernel started: %s", getattr(self._km, 'kernel_id', 'unknown'))
 
     def ensure_kernel(self):
@@ -120,6 +124,7 @@ class KernelManager:
                     self._kc = self._km.client()
                     self._kc.start_channels()
                     self._kc.wait_for_ready(timeout=60)
+                    get_metrics().record_kernel_restart()
             finally:
                 self._restarting = False
 
@@ -137,8 +142,15 @@ class KernelManager:
                 if self._restarting:
                     continue
                 if self._km is None or not self._km.is_alive():
+                    was_restart = self._km is not None
                     try:
                         self._start_kernel()
+                        if was_restart:
+                            logger.warning(
+                                "Watchdog restarted kernel after unexpected death",
+                                extra={'metric': 'kernel_watchdog_restart'},
+                            )
+                            get_metrics().record_watchdog_restart()
                     except Exception:
                         pass  # Will retry next cycle
 
@@ -207,68 +219,72 @@ class KernelManager:
                 result['stderr'] = 'Kernel not started'
                 return result
 
+            start_time = time.time()
             msg_id = self._kc.execute(code, store_history=True)
-
-            html_parts: List[str] = []
-            while True:
-                try:
-                    msg = self._kc.iopub_channel.get_msg(timeout=self.EXECUTION_TIMEOUT)
-                except _queue.Empty:
-                    result['success'] = False
-                    result['stderr'] += '\n[Timeout: kernel did not respond]'
-                    self._record_error('TimeoutError', 'kernel did not respond within timeout', [])
-                    break
-                except Exception as e:
-                    result['success'] = False
-                    result['stderr'] += f'\n[Kernel communication error: {e}]'
-                    self._record_error('KernelError', str(e), [])
-                    break
-
-                parent_id = msg.get('parent_header', {}).get('msg_id', '')
-                if parent_id != msg_id:
-                    continue
-
-                msg_type = msg.get('msg_type', '')
-                content = msg.get('content', {})
-
-                if msg_type == 'stream':
-                    name = content.get('name', 'stdout')
-                    text = content.get('text', '')
-                    if name == 'stderr':
-                        result['stderr'] += text
-                    else:
-                        result['stdout'] += text
-                elif msg_type == 'display_data':
-                    data = content.get('data', {})
-                    if 'image/png' in data:
-                        result['plots'].append(data['image/png'])
-                    if 'text/html' in data:
-                        html_parts.append(data['text/html'])
-                elif msg_type == 'execute_result':
-                    data = content.get('data', {})
-                    if 'image/png' in data:
-                        png = data['image/png']
-                        if png not in result['plots']:
-                            result['plots'].append(png)
-                    if 'text/html' in data:
-                        html_parts.append(data['text/html'])
-                    if 'text/plain' in data:
-                        text = data['text/plain']
-                        if result['stdout'] and not result['stdout'].endswith('\n'):
-                            result['stdout'] += '\n'
-                        result['stdout'] += text + '\n'
-                elif msg_type == 'error':
-                    result['success'] = False
-                    traceback_list = content.get('traceback', [])
-                    result['stderr'] += '\n'.join(traceback_list)
-                    self._record_error(
-                        content.get('ename', 'Error'),
-                        content.get('evalue', ''),
-                        traceback_list,
-                    )
-                elif msg_type == 'status':
-                    if content.get('execution_state') == 'idle':
+            try:
+                html_parts: List[str] = []
+                while True:
+                    try:
+                        msg = self._kc.iopub_channel.get_msg(timeout=self.EXECUTION_TIMEOUT)
+                    except _queue.Empty:
+                        result['success'] = False
+                        result['stderr'] += '\n[Timeout: kernel did not respond]'
+                        self._record_error('TimeoutError', 'kernel did not respond within timeout', [])
                         break
+                    except Exception as e:
+                        result['success'] = False
+                        result['stderr'] += f'\n[Kernel communication error: {e}]'
+                        self._record_error('KernelError', str(e), [])
+                        break
+
+                    parent_id = msg.get('parent_header', {}).get('msg_id', '')
+                    if parent_id != msg_id:
+                        continue
+
+                    msg_type = msg.get('msg_type', '')
+                    content = msg.get('content', {})
+
+                    if msg_type == 'stream':
+                        name = content.get('name', 'stdout')
+                        text = content.get('text', '')
+                        if name == 'stderr':
+                            result['stderr'] += text
+                        else:
+                            result['stdout'] += text
+                    elif msg_type == 'display_data':
+                        data = content.get('data', {})
+                        if 'image/png' in data:
+                            result['plots'].append(data['image/png'])
+                        if 'text/html' in data:
+                            html_parts.append(data['text/html'])
+                    elif msg_type == 'execute_result':
+                        data = content.get('data', {})
+                        if 'image/png' in data:
+                            png = data['image/png']
+                            if png not in result['plots']:
+                                result['plots'].append(png)
+                        if 'text/html' in data:
+                            html_parts.append(data['text/html'])
+                        if 'text/plain' in data:
+                            text = data['text/plain']
+                            if result['stdout'] and not result['stdout'].endswith('\n'):
+                                result['stdout'] += '\n'
+                            result['stdout'] += text + '\n'
+                    elif msg_type == 'error':
+                        result['success'] = False
+                        traceback_list = content.get('traceback', [])
+                        result['stderr'] += '\n'.join(traceback_list)
+                        self._record_error(
+                            content.get('ename', 'Error'),
+                            content.get('evalue', ''),
+                            traceback_list,
+                        )
+                    elif msg_type == 'status':
+                        if content.get('execution_state') == 'idle':
+                            break
+            finally:
+                duration = time.time() - start_time
+                get_metrics().record_execution(duration, result['success'])
 
             result['html'] = '\n'.join(html_parts) if html_parts else ''
 
@@ -312,73 +328,80 @@ class KernelManager:
                 return
 
             msg_id = self._kc.execute(code, store_history=True)
+            start_time = time.time()
+            succeeded = False
+            saw_error = False
+            try:
+                while True:
+                    try:
+                        msg = self._kc.iopub_channel.get_msg(timeout=self.EXECUTION_TIMEOUT)
+                    except _queue.Empty:
+                        yield {
+                            "type": "error",
+                            "ename": "TimeoutError",
+                            "evalue": "Kernel did not respond within timeout",
+                            "traceback": [],
+                        }
+                        self._record_error('TimeoutError', 'kernel did not respond within timeout', [])
+                        return
+                    except Exception as e:
+                        yield {
+                            "type": "error",
+                            "ename": "KernelError",
+                            "evalue": str(e),
+                            "traceback": [],
+                        }
+                        self._record_error('KernelError', str(e), [])
+                        return
 
-            while True:
-                try:
-                    msg = self._kc.iopub_channel.get_msg(timeout=self.EXECUTION_TIMEOUT)
-                except _queue.Empty:
-                    yield {
-                        "type": "error",
-                        "ename": "TimeoutError",
-                        "evalue": "Kernel did not respond within timeout",
-                        "traceback": [],
-                    }
-                    self._record_error('TimeoutError', 'kernel did not respond within timeout', [])
-                    return
-                except Exception as e:
-                    yield {
-                        "type": "error",
-                        "ename": "KernelError",
-                        "evalue": str(e),
-                        "traceback": [],
-                    }
-                    self._record_error('KernelError', str(e), [])
-                    return
+                    parent_id = msg.get('parent_header', {}).get('msg_id', '')
+                    if parent_id != msg_id:
+                        continue
 
-                parent_id = msg.get('parent_header', {}).get('msg_id', '')
-                if parent_id != msg_id:
-                    continue
+                    msg_type = msg.get('msg_type', '')
+                    content = msg.get('content', {})
 
-                msg_type = msg.get('msg_type', '')
-                content = msg.get('content', {})
-
-                if msg_type == 'stream':
-                    yield {
-                        "type": "stream",
-                        "name": content.get("name", "stdout"),
-                        "text": content.get("text", ""),
-                    }
-                elif msg_type == 'display_data':
-                    yield {
-                        "type": "display_data",
-                        "data": content.get("data", {}),
-                        "metadata": content.get("metadata", {}),
-                    }
-                elif msg_type == 'execute_result':
-                    yield {
-                        "type": "execute_result",
-                        "data": content.get("data", {}),
-                        "execution_count": content.get("execution_count"),
-                    }
-                elif msg_type == 'error':
-                    yield {
-                        "type": "error",
-                        "ename": content.get("ename", ""),
-                        "evalue": content.get("evalue", ""),
-                        "traceback": content.get("traceback", []),
-                    }
-                    self._record_error(
-                        content.get('ename', 'Error'),
-                        content.get('evalue', ''),
-                        content.get('traceback', []),
-                    )
-                elif msg_type == 'status':
-                    yield {
-                        "type": "status",
-                        "execution_state": content.get("execution_state", ""),
-                    }
-                    if content.get("execution_state") == "idle":
-                        break
+                    if msg_type == 'stream':
+                        yield {
+                            "type": "stream",
+                            "name": content.get("name", "stdout"),
+                            "text": content.get("text", ""),
+                        }
+                    elif msg_type == 'display_data':
+                        yield {
+                            "type": "display_data",
+                            "data": content.get("data", {}),
+                            "metadata": content.get("metadata", {}),
+                        }
+                    elif msg_type == 'execute_result':
+                        yield {
+                            "type": "execute_result",
+                            "data": content.get("data", {}),
+                            "execution_count": content.get("execution_count"),
+                        }
+                    elif msg_type == 'error':
+                        saw_error = True
+                        yield {
+                            "type": "error",
+                            "ename": content.get("ename", ""),
+                            "evalue": content.get("evalue", ""),
+                            "traceback": content.get("traceback", []),
+                        }
+                        self._record_error(
+                            content.get('ename', 'Error'),
+                            content.get('evalue', ''),
+                            content.get('traceback', []),
+                        )
+                    elif msg_type == 'status':
+                        yield {
+                            "type": "status",
+                            "execution_state": content.get("execution_state", ""),
+                        }
+                        if content.get("execution_state") == "idle":
+                            succeeded = not saw_error
+                            break
+            finally:
+                get_metrics().record_execution(time.time() - start_time, succeeded)
 
     # ------------------------------------------------------------------ #
     #  Interrupt                                                          #
@@ -391,6 +414,7 @@ class KernelManager:
                 return False
             try:
                 self._km.interrupt_kernel()
+                get_metrics().record_interrupt()
                 return True
             except Exception as e:
                 logger.error("Failed to interrupt kernel: %s", e)
