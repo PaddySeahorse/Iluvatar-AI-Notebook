@@ -1,0 +1,96 @@
+# Third-Party Notices
+
+本项目使用了以下第三方开源组件，感谢这些项目的贡献。
+
+---
+
+## 前端依赖（bundled in static/vendor/）
+
+### CodeMirror
+
+- 许可证：MIT
+- 用途：浏览器端代码编辑器，提供语法高亮和代码编辑功能
+- 文件：`static/vendor/codemirror/`
+
+```
+Copyright (C) 2017 by Marijn Haverbeke <marijn@haverbeke.nyc> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+### Font Awesome Free 6.4.0
+
+- 许可证：Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT
+- 网站：https://fontawesome.com
+- 用途：UI 图标库
+- 文件：`static/vendor/font-awesome/`
+
+### Inter (Google Fonts)
+
+- 许可证：SIL Open Font License 1.1
+- 网站：https://fonts.google.com/specimen/Inter
+- 用途：UI 正文字体
+- 文件：`static/vendor/fonts/inter/`
+
+### Fira Code (Google Fonts)
+
+- 许可证：SIL Open Font License 1.1
+- 网站：https://fonts.google.com/specimen/Fira+Code
+- 用途：代码编辑区等宽字体
+- 文件：`static/vendor/fonts/fira-code/`
+
+---
+
+## 后端依赖（Python）
+
+### Flask
+
+- 许可证：BSD-3-Clause
+- 网站：https://flask.palletsprojects.com
+- 用途：Web 应用框架
+
+### Flask-CORS
+
+- 许可证：MIT
+- 网站：https://github.com/corydolphin/flask-cors
+- 用途：跨域资源共享支持
+
+### matplotlib
+
+- 许可证：PSF-based
+- 网站：https://matplotlib.org
+- 用途：数据可视化与图表生成
+
+### requests
+
+- 许可证：Apache 2.0
+- 网站：https://requests.readthedocs.io
+- 用途：HTTP 请求库
+
+### pynvml
+
+- 许可证：MIT
+- 网站：https://pypi.org/project/pynvml
+- 用途：GPU 监控与管理
+
+### pytest
+
+- 许可证：MIT
+- 网站：https://pytest.org
+- 用途：测试框架
