@@ -130,6 +130,23 @@ pip install flask flask-cors matplotlib requests pynvml pytest
 >
 > 可用 `USE_LITELLM=0` 强制禁用（`USE_LITELLM=1` 强制启用；不设置时自动检测）。
 
+### 天数智芯 GPU 环境（可选）
+
+在装有 IXUCA SDK 的天数智芯服务器上，可启用 GPU 专用内核与 Provisioner：
+
+```bash
+# 1. 注册 IluvatarProvisioner entry point
+pip install -e . --no-deps
+
+# 2. 安装 iluvatar_python 内核描述文件
+jupyter kernelspec install kernels/iluvatar_python --prefix /usr/local
+
+# 3. 启动时开启 Provisioner
+USE_ILUVATAR_PROVISIONER=true python app.py
+```
+
+Provisioner 会在内核启动时自动注入 `IXUCA_VISIBLE_DEVICES` 等环境变量并分配 GPU 设备，中断时优先使用 `ixuca-smi --kill-compute` GPU 专用中断。
+
 ### 开发环境配置
 
 如需参与开发，建议安装以下工具：
@@ -175,8 +192,11 @@ python app.py
 ### 运行测试
 
 ```bash
-# Python 后端测试（单元 + 集成）
-pytest
+# Python 后端测试（单元 + 集成，自动跳过需要 GPU 硬件的用例）
+pytest -m "not iluvatar"
+
+# 天数智芯硬件集成测试（需先完成上方「天数智芯 GPU 环境」两步安装）
+pytest -m iluvatar
 
 # 前端逻辑测试（Node.js）
 node tests/js/completion.test.mjs
@@ -363,6 +383,11 @@ data: [DONE]
 ---
 
 ## 📋 更新日志
+
+### 测试修复（2026-08）
+
+- **图表捕获修复** — 内核启动时自动注入 `MPLBACKEND=module://matplotlib_inline.backend_inline`，避免无头环境下回退到 Agg 后端导致 `plt.show()` 不产生 `display_data`、仪表板图表捕获失效；`kernels/iluvatar_python/kernel.json` 同步内置该变量
+- **文档补全** — 快速开始新增「天数智芯 GPU 环境」安装步骤（`pip install -e .` + kernelspec 安装），运行测试章节补充 `-m iluvatar` 硬件用例说明
 
 ### ReAct Agent 与结构化上下文（2026-08）
 

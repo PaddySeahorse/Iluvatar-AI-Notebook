@@ -16,6 +16,7 @@
     "debugger": true
   },
   "env": {
-    "ILUVATAR_KERNEL_TYPE": "ai-optimized"
+    "ILUVATAR_KERNEL_TYPE": "ai-optimized",
+    "MPLBACKEND": "module://matplotlib_inline.backend_inline"
   }
 }

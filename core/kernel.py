@@ -31,6 +31,17 @@ from core.observability import get_metrics
 
 logger = logging.getLogger(__name__)
 
+# Matplotlib backend forced inside kernel subprocesses.
+#
+# On headless hosts (and newer IPython releases) ipykernel may fall back to
+# the non-display ``Agg`` backend, in which case figures never produce
+# ``display_data`` messages and the dashboard plot capture silently breaks.
+# Setting MPLBACKEND to matplotlib-inline's backend restores figure display
+# (plt.show() and end-of-cell flush both emit image/png).  ``setdefault``
+# keeps an explicit user override intact; IPython ships matplotlib-inline,
+# so the module is always importable where a kernel runs.
+MPL_INLINE_BACKEND = 'module://matplotlib_inline.backend_inline'
+
 
 class KernelManager:
     """Kernel manager wrapping jupyter_client.KernelManager.
@@ -78,6 +89,12 @@ class KernelManager:
             # if already registered (e.g. by a previous start or entry point).
             from core.iluvatar_provisioner import register_provisioner
             register_provisioner()
+
+        # Ensure figures render as display_data inside the kernel (see
+        # MPL_INLINE_BACKEND above).  jupyter_client inherits os.environ when
+        # no explicit env is passed to start_kernel(), so this reaches both
+        # the plain python3 kernel and the Iluvatar-provisioned kernel.
+        os.environ.setdefault('MPLBACKEND', MPL_INLINE_BACKEND)
 
         self._km = JupyterKernelManager(kernel_name=self._kernel_name)
         self._km.start_kernel()

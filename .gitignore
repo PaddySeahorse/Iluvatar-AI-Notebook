@@ -4,6 +4,7 @@
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Pytest cache
 .pytest_cache/
