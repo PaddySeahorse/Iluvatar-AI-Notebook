@@ -1,14 +1,13 @@
-"""LLM transport layer with optional LiteLLM integration.
+"""LLM transport layer via the OpenAI SDK against a LiteLLM proxy.
 
-The ReAct agent currently talks to a configured OpenAI-compatible chat
-completions endpoint with plain ``requests``.  This module wraps that low-level
-call in a single transport API and, when ``litellm`` is importable, routes
-traffic through it instead:
+The ReAct agent talks to a LiteLLM proxy (an OpenAI-compatible gateway).
+This module wraps that call in a single transport API using the official
+``openai`` Python SDK:
 
-- LiteLLM adds provider-agnostic retries, timeout handling and a normalized
-  error surface across many OpenAI-compatible / provider-specific endpoints.
-- The plain ``requests`` path stays as a zero-dependency fallback so the app
-  still works when ``litellm`` is not installed.
+- The OpenAI SDK handles retries, timeouts and a normalized error surface
+  when talking to the proxy's ``/chat/completions`` endpoint.
+- A plain ``requests`` path stays as a zero-dependency fallback so the app
+  still works when the ``openai`` package is not installed.
 
 Both backends return identical, normalized shapes:
 
@@ -16,9 +15,12 @@ Both backends return identical, normalized shapes:
 - streaming:     a generator of text deltas
 - probe:         ``bool`` (whether the endpoint accepted the ``tools`` param)
 
-The active backend is chosen by: explicit ``backend=`` argument > ``USE_LITELLM``
+The active backend is chosen by: explicit ``backend=`` argument > ``USE_OPENAI_SDK``
 env var (``1``/``true``/``yes`` enables, ``0``/``false``/``no`` disables) >
-auto-detect (LiteLLM if importable, otherwise requests).
+auto-detect (OpenAI SDK if importable, otherwise requests).
+
+The stored endpoint may be a full chat URL; a trailing ``/chat/completions``
+is stripped so the SDK can append it to ``base_url`` itself.
 """
 
 import json
@@ -27,17 +29,17 @@ import os
 import requests
 
 try:
-    import litellm
-    LITELLM_AVAILABLE = True
+    import openai
+    OPENAI_AVAILABLE = True
 except Exception:  # pragma: no cover - depends on environment
-    litellm = None
-    LITELLM_AVAILABLE = False
+    openai = None
+    OPENAI_AVAILABLE = False
 
 _REQUESTS_TIMEOUT = 60
 _STREAM_TIMEOUT = 180
 
-# OpenAI-compatible base URL normalization: LiteLLM appends ``/chat/completions``
-# to ``api_base``, while the app historically stored the full endpoint URL.
+# OpenAI-compatible base URL normalization: the SDK appends ``/chat/completions``
+# to ``base_url``, while the app historically stored the full endpoint URL.
 _CHAT_SUFFIXES = ('/chat/completions',)
 
 
@@ -49,18 +51,18 @@ class LLMError(Exception):
         self.http_status = http_status
 
 
-def is_litellm_enabled() -> bool:
-    """Return True when traffic should go through LiteLLM."""
-    value = os.environ.get('USE_LITELLM', '').strip().lower()
+def is_openai_sdk_enabled() -> bool:
+    """Return True when traffic should go through the OpenAI SDK."""
+    value = os.environ.get('USE_OPENAI_SDK', '').strip().lower()
     if value in ('1', 'true', 'yes', 'on'):
-        return LITELLM_AVAILABLE
+        return OPENAI_AVAILABLE
     if value in ('0', 'false', 'no', 'off'):
         return False
-    return LITELLM_AVAILABLE
+    return OPENAI_AVAILABLE
 
 
 def _to_api_base(url: str) -> str:
-    """Strip a trailing ``/chat/completions`` so LiteLLM can append it again."""
+    """Strip a trailing ``/chat/completions`` so the SDK can append it again."""
     base = (url or '').strip().rstrip('/')
     for suffix in _CHAT_SUFFIXES:
         if base.endswith(suffix):
@@ -68,18 +70,8 @@ def _to_api_base(url: str) -> str:
     return base
 
 
-def _to_litellm_model(model: str) -> str:
-    """Prefix a bare model name with the OpenAI-compatible provider name."""
-    model = (model or '').strip()
-    if not model:
-        raise LLMError('missing model name')
-    if '/' in model:
-        return model
-    return f'openai/{model}'
-
-
 def _normalize_tool_calls(message) -> list | None:
-    """Convert LiteLLM tool_calls objects into plain dicts."""
+    """Convert OpenAI SDK tool_calls objects into plain dicts."""
     raw = getattr(message, 'tool_calls', None) or []
     out = []
     for tc in raw:
@@ -95,45 +87,50 @@ def _normalize_tool_calls(message) -> list | None:
     return out or None
 
 
-def _normalize_nostream_message(message) -> dict:
-    """Return the transport-neutral ``{"content", "tool_calls"}`` dict."""
-    content = getattr(message, 'content', None)
-    if content is None:
-        content = ''
-    return {
-        'content': content,
-        'tool_calls': _normalize_tool_calls(message),
-    }
+def _openai_client(url, token):
+    """Build an OpenAI client pointed at the LiteLLM proxy."""
+    return openai.OpenAI(
+        base_url=_to_api_base(url) or None,
+        api_key=token or None,
+        max_retries=2,
+    )
+
+
+def _map_openai_error(e, streaming=False):
+    """Translate an OpenAI SDK exception into an ``LLMError``."""
+    kind = 'API 流式请求超时' if streaming else 'API 请求超时'
+    if isinstance(e, openai.APITimeoutError):
+        return LLMError(kind)
+    if isinstance(e, openai.RateLimitError):
+        return LLMError('API 请求被限流')
+    if isinstance(e, openai.AuthenticationError):
+        return LLMError(f'API 鉴权失败: {e}')
+    if isinstance(e, openai.BadRequestError):
+        return LLMError(f'API 请求被拒绝: {e}')
+    if isinstance(e, openai.APIConnectionError):
+        return LLMError(f'无法连接 API 服务: {e}')
+    label = 'OpenAI SDK 流式调用失败' if streaming else 'OpenAI SDK 调用失败'
+    if isinstance(e, LLMError):
+        return e
+    return LLMError(f'{label}: {e}')
 
 
 # ---------------------------------------------------------------------------
-# LiteLLM backend
+# OpenAI SDK backend (LiteLLM proxy)
 # ---------------------------------------------------------------------------
 
-def _litellm_nostream(url, token, model, messages, tools=None, timeout=_REQUESTS_TIMEOUT) -> dict:
+def _openai_nostream(url, token, model, messages, tools=None, timeout=_REQUESTS_TIMEOUT) -> dict:
     try:
-        resp = litellm.completion(
-            model=_to_litellm_model(model),
+        resp = _openai_client(url, token).chat.completions.create(
+            model=model,
             messages=messages,
-            api_base=_to_api_base(url) or None,
-            api_key=token or None,
             temperature=0.7,
             tools=tools or None,
             tool_choice='auto' if tools else None,
             timeout=timeout,
         )
-    except litellm.exceptions.Timeout as e:
-        raise LLMError('API 请求超时') from e
-    except litellm.exceptions.RateLimitError as e:
-        raise LLMError('API 请求被限流') from e
-    except litellm.exceptions.AuthenticationError as e:
-        raise LLMError(f'API 鉴权失败: {e}') from e
-    except litellm.exceptions.BadRequestError as e:
-        raise LLMError(f'API 请求被拒绝: {e}') from e
     except Exception as e:
-        if isinstance(e, LLMError):
-            raise
-        raise LLMError(f'LiteLLM 调用失败: {e}') from e
+        raise _map_openai_error(e) from e
 
     try:
         message = resp.choices[0].message
@@ -147,31 +144,15 @@ def _litellm_nostream(url, token, model, messages, tools=None, timeout=_REQUESTS
         raise LLMError(f'API 响应格式无法解析: {e}') from e
 
 
-def _litellm_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
+def _openai_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
     try:
-        resp = litellm.completion(
-            model=_to_litellm_model(model),
+        resp = _openai_client(url, token).chat.completions.create(
+            model=model,
             messages=messages,
-            api_base=_to_api_base(url) or None,
-            api_key=token or None,
             temperature=0.7,
             stream=True,
             timeout=timeout,
         )
-    except litellm.exceptions.Timeout as e:
-        raise LLMError('API 流式请求超时') from e
-    except litellm.exceptions.RateLimitError as e:
-        raise LLMError('API 请求被限流') from e
-    except litellm.exceptions.AuthenticationError as e:
-        raise LLMError(f'API 鉴权失败: {e}') from e
-    except litellm.exceptions.BadRequestError as e:
-        raise LLMError(f'API 请求被拒绝: {e}') from e
-    except Exception as e:
-        if isinstance(e, LLMError):
-            raise
-        raise LLMError(f'LiteLLM 流式调用失败: {e}') from e
-
-    try:
         for chunk in resp:
             choices = getattr(chunk, 'choices', None) or []
             if not choices:
@@ -185,17 +166,15 @@ def _litellm_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
     except LLMError:
         raise
     except Exception as e:
-        raise LLMError(f'API 流式响应解析失败: {e}') from e
+        raise _map_openai_error(e, streaming=True) from e
 
 
-def _litellm_probe(url, token, model) -> bool:
+def _openai_probe(url, token, model) -> bool:
     """Probe whether the endpoint accepts the ``tools`` parameter."""
     try:
-        resp = litellm.completion(
-            model=_to_litellm_model(model),
+        resp = _openai_client(url, token).chat.completions.create(
+            model=model,
             messages=[{'role': 'user', 'content': 'ping'}],
-            api_base=_to_api_base(url) or None,
-            api_key=token or None,
             max_tokens=1,
             tools=[{
                 'type': 'function',
@@ -316,21 +295,21 @@ def _requests_probe(url, token, model) -> bool:
 
 def chat_nostream(url, token, model, messages, tools=None, timeout=_REQUESTS_TIMEOUT, backend=None) -> dict:
     """Blocking chat call; returns ``{"content", "tool_calls"}``."""
-    if backend == 'litellm' or (backend is None and is_litellm_enabled()):
-        return _litellm_nostream(url, token, model, messages, tools=tools, timeout=timeout)
+    if backend == 'openai' or (backend is None and is_openai_sdk_enabled()):
+        return _openai_nostream(url, token, model, messages, tools=tools, timeout=timeout)
     return _requests_nostream(url, token, model, messages, tools=tools, timeout=timeout)
 
 
 def chat_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT, backend=None):
     """Streaming chat call; yields text deltas."""
-    if backend == 'litellm' or (backend is None and is_litellm_enabled()):
-        yield from _litellm_stream(url, token, model, messages, timeout=timeout)
+    if backend == 'openai' or (backend is None and is_openai_sdk_enabled()):
+        yield from _openai_stream(url, token, model, messages, timeout=timeout)
     else:
         yield from _requests_stream(url, token, model, messages, timeout=timeout)
 
 
 def probe_tool_support(url, token, model, backend=None) -> bool:
     """Return True when the endpoint accepts the OpenAI ``tools`` parameter."""
-    if backend == 'litellm' or (backend is None and is_litellm_enabled()):
-        return _litellm_probe(url, token, model)
+    if backend == 'openai' or (backend is None and is_openai_sdk_enabled()):
+        return _openai_probe(url, token, model)
     return _requests_probe(url, token, model)

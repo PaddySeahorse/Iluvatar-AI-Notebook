@@ -42,15 +42,12 @@ _log_level = getattr(
 configure_logging(level=_log_level)
 
 # ---------------------------------------------------------------------------
-# Configuration (.env loaded manually to avoid hardcoding API secrets)
+# Configuration: model settings live in ~/.Iluvatar-AI-Notebook/config.yaml
+# (seeded from the environment on first run, restored on every start)
 # ---------------------------------------------------------------------------
-if os.path.exists('.env'):
-    with open('.env') as f:
-        for line in f:
-            line = line.strip()
-            if '=' in line and not line.startswith('#'):
-                k, v = line.split('=', 1)
-                os.environ[k.strip()] = v.strip().strip("'").strip('"')
+from core.user_config import apply_saved_config
+
+apply_saved_config()
 
 DEFAULT_API_URL = os.environ.get('OPENI_API_URL', 'https://token.openi.org.cn/v1/chat/completions')
 DEFAULT_API_TOKEN = os.environ.get('OPENI_API_TOKEN', '')

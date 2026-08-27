@@ -17,6 +17,8 @@ pyzmq>=25.0
 
 # ── AI Copilot 代理 ───────────────────────────────
 requests>=2.31
+openai>=1.0
+PyYAML>=6.0
 
 # ── 用户代码依赖（集成测试会用到 matplotlib）──────
 matplotlib>=3.7

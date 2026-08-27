@@ -233,12 +233,12 @@
                 <button id="closeSettingsBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="settings-desc">配置自定义的 AI 推理端点。默认采用 OpenI 平台的 DeepSeek 模型加速提供服务。</p>
-                
+                <p class="settings-desc">配置 LiteLLM Proxy 端点（OpenAI 兼容网关），模型路由、密钥与预算管理请使用下方 LiteLLM 原生管理台。</p>
+
                 <div class="form-group">
-                    <label for="apiUrlInput">API URL 端点</label>
-                    <input type="text" id="apiUrlInput" placeholder="https://token.openi.org.cn/v1/chat/completions" autocomplete="off" name="apiUrl">
-                    <small>OpenAI 兼容的 completions 路径</small>
+                    <label for="apiUrlInput">LiteLLM Proxy 地址 (Base URL)</label>
+                    <input type="text" id="apiUrlInput" placeholder="http://localhost:4000/v1" autocomplete="off" name="apiUrl">
+                    <small>OpenAI 兼容的 /v1 端点，例如 http://localhost:4000/v1</small>
                 </div>
 
                 <div class="form-group">
@@ -256,6 +256,19 @@
                     <label for="modelInput">模型名称 (Model Name)</label>
                     <input type="text" id="modelInput" placeholder="dsv4" autocomplete="off" name="model">
                     <small>请求中携带的 model 字段，例如：dsv4</small>
+                </div>
+
+                <div class="form-group litellm-ui-group">
+                    <label><i class="fa-solid fa-sliders" aria-hidden="true"></i> LiteLLM 管理台</label>
+                    <div class="litellm-ui-actions">
+                        <span id="litellmUiUrl" class="litellm-ui-url" title="经应用端口反向代理的同源地址">/ui/</span>
+                        <button id="openLitellmUiBtn" type="button" class="modal-btn secondary small">新窗口打开</button>
+                        <button id="toggleLitellmUiBtn" type="button" class="modal-btn secondary small">页内预览</button>
+                    </div>
+                    <small>模型路由、虚拟密钥与用量管理（LiteLLM Proxy 原生 WebUI）</small>
+                    <div id="litellmUiFrameWrap" class="litellm-ui-frame-wrap" hidden>
+                        <iframe id="litellmUiFrame" title="LiteLLM Proxy WebUI" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">

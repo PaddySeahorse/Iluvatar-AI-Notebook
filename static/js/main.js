@@ -632,8 +632,26 @@ function setupEventListeners() {
 
     // Settings Modal
     const settingsModal = document.getElementById('settingsModal');
+    const apiUrlInput = document.getElementById('apiUrlInput');
+    const litellmUiUrlEl = document.getElementById('litellmUiUrl');
+    const litellmUiFrameWrap = document.getElementById('litellmUiFrameWrap');
+    const litellmUiFrame = document.getElementById('litellmUiFrame');
+
+    function deriveLitellmUiUrl(url) {
+        // External networks can only reach the Flask port, so the WebUI is
+        // consumed same-origin through the backend's reverse proxy.
+        return '/ui/';
+    }
+
+    function refreshLitellmUiUrl() {
+        litellmUiUrlEl.textContent = deriveLitellmUiUrl();
+        litellmUiUrlEl.title = '经应用端口反向代理的同源地址';
+        return deriveLitellmUiUrl();
+    }
+
     document.getElementById('settingsBtn').addEventListener('click', () => {
         settingsModal.classList.add('open');
+        refreshLitellmUiUrl();
     });
     document.getElementById('closeSettingsBtn').addEventListener('click', () => {
         settingsModal.classList.remove('open');
@@ -649,9 +667,23 @@ function setupEventListeners() {
             icon.className = 'fa-solid fa-eye';
         }
     });
-    
+    apiUrlInput.addEventListener('input', refreshLitellmUiUrl);
+
+    document.getElementById('openLitellmUiBtn').addEventListener('click', () => {
+        window.open(deriveLitellmUiUrl(), '_blank', 'noopener');
+    });
+
+    document.getElementById('toggleLitellmUiBtn').addEventListener('click', () => {
+        const uiUrl = deriveLitellmUiUrl();
+        const willShow = litellmUiFrameWrap.hidden;
+        litellmUiFrameWrap.hidden = !willShow;
+        if (willShow && litellmUiFrame.src !== uiUrl) {
+            litellmUiFrame.src = uiUrl;
+        }
+    });
+
     document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
-        const url = document.getElementById('apiUrlInput').value.trim();
+        const url = apiUrlInput.value.trim();
         const token = document.getElementById('apiTokenInput').value.trim();
         const model = document.getElementById('modelInput').value.trim();
 
@@ -659,7 +691,7 @@ function setupEventListeners() {
 
         settingsModal.classList.remove('open');
         showFloatingNotification(
-            persisted ? '配置已保存！' : '已保存到浏览器，但写入 .env 失败'
+            persisted ? '配置已保存！' : '已保存到浏览器，但写入服务器配置文件失败'
         );
     });
 
@@ -1766,6 +1798,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (apiEl) apiEl.value = config.url;
         if (tokenEl) tokenEl.value = config.token;
         if (modelEl) modelEl.value = config.model;
+        refreshLitellmUiUrl();
 
         // 2. Fetch server notebooks list and load active notebook
         fetchNotebooksList()

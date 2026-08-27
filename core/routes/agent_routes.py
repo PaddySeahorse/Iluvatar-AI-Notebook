@@ -49,13 +49,14 @@ def agent_call():
     """
     data = request.json or {}
     s = state()
-    url = data.get('url', s.DEFAULT_API_URL)
-    token = data.get('token', s.DEFAULT_API_TOKEN)
-    model = data.get('model', s.DEFAULT_API_MODEL)
+    url = data.get('url') or s.DEFAULT_API_URL
+    token = data.get('token') or s.DEFAULT_API_TOKEN
+    model = data.get('model') or s.DEFAULT_API_MODEL
     query = str(data.get('query', '') or '')
     messages = data.get('messages') or []
     include_context = bool(data.get('include_context', True))
     max_steps = int(data.get('max_steps', 6) or 6)
+    use_tools_probe = bool(data.get('use_tools_probe', True))
     backend = data.get('backend') or None
 
     if not query.strip():
@@ -71,6 +72,7 @@ def agent_call():
             include_context=include_context,
             state_module=s,
             max_steps=max_steps,
+            use_tools_probe=use_tools_probe,
             backend=backend,
         ):
             yield f'data: {json.dumps(event, ensure_ascii=False)}\n\n'

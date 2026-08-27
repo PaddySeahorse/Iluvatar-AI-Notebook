@@ -1,7 +1,8 @@
 // Unit tests for saveApiConfig from static/js/api.js (API config persistence).
 //
 // Verifies that saving the config updates localStorage and, when the backend
-// is reachable, persists it to the project .env via POST /api/save_config.
+// is reachable, persists it to ~/.Iluvatar-AI-Notebook/config.yaml via
+// POST /api/save_config.
 //
 // Run with: node --test tests/js/api-config.test.mjs
 

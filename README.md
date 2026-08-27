@@ -35,7 +35,7 @@
 | **后端** | Python / Flask |
 | **前端** | HTML5 + CSS3 + Vanilla JavaScript |
 | **运行时** | jupyter_client + ipykernel（ZMQ 五通道协议，持久化全局命名空间） |
-| **AI 集成** | OpenAI 兼容 API（支持 DeepSeek 等模型），可选 LiteLLM 统一网关 |
+| **AI 集成** | OpenAI SDK → LiteLLM Proxy（OpenAI 兼容网关），requests 兜底 |
 | **GPU 集成** | 天数智芯 IXUCA SDK + 自定义 KernelProvisioner |
 | **图标** | Font Awesome |
 | **字体** | Inter + Fira Code |
@@ -122,13 +122,13 @@
 pip install flask flask-cors matplotlib requests pynvml pytest
 ```
 
-> **可选 — LiteLLM 网关**：安装 `litellm` 后，LLM 调用自动统一走 LiteLLM（provider 归一化、限流/超时/鉴权错误分类等），未安装时透明降级为原生 `requests`，无需任何代码改动。
+> **LLM 传输层 — OpenAI SDK → LiteLLM Proxy**：LLM 调用通过官方 `openai` Python SDK 访问 LiteLLM Proxy（OpenAI 兼容网关），获得超时、重试与限流/鉴权错误分类；未安装 `openai` 包时透明降级为原生 `requests`，无需任何代码改动。
 >
 > ```bash
-> pip install litellm
+> pip install openai
 > ```
 >
-> 可用 `USE_LITELLM=0` 强制禁用（`USE_LITELLM=1` 强制启用；不设置时自动检测）。
+> 可用 `USE_OPENAI_SDK=0` 强制禁用（`USE_OPENAI_SDK=1` 强制启用；不设置时自动检测）。
 
 ### 天数智芯 GPU 环境（可选）
 
@@ -164,7 +164,7 @@ pip install flake8
 
 ### 配置（可选）
 
-在项目根目录创建 `.env` 文件，配置以下环境变量：
+通过环境变量预设以下配置（首次启动时会作为种子写入 `~/.Iluvatar-AI-Notebook/config.yaml`）：
 
 ```env
 OPENI_API_URL=https://token.openi.org.cn/v1/chat/completions
@@ -173,7 +173,7 @@ OPENI_API_MODEL=dsv4
 ```
 
 也可以在启动后通过 **UI 设置面板**配置（右上角「设置」）：
-填写 API URL / Token / Model 后点击「保存」，配置会**自动写入项目根目录的 `.env` 文件**（同时同步运行时默认值，无需重启），并保存在浏览器 localStorage。
+填写 LiteLLM Proxy 地址 / Token / Model 后点击「保存」，配置会**自动写入宿主机用户目录的 `~/.Iluvatar-AI-Notebook/config.yaml`**（同时同步运行时默认值，无需重启），并保存在浏览器 localStorage；下次启动时自动从该文件恢复。设置面板内嵌 **LiteLLM Proxy 原生管理台**入口（新窗口打开 / 页内预览），地址由 API URL 自动推导（`<origin>/ui/`），可在其中管理模型路由、虚拟密钥与用量。
 
 如需限制跨域来源，可额外配置：
 
@@ -221,7 +221,7 @@ npx playwright test e2e/p3-completion-inspect.spec.mjs
 | :--- | :--- | :--- |
 | `/` | GET | 主页面 |
 | `/api/get_config` | GET | 获取默认 API 配置 |
-| `/api/save_config` | POST | 持久化 LLM API 配置（Url/Token/Model）至项目 `.env` 并同步运行时默认值 |
+| `/api/save_config` | POST | 持久化 LLM API 配置（Url/Token/Model）至 `~/.Iluvatar-AI-Notebook/config.yaml` 并同步运行时默认值 |
 | `/api/run_cell` | POST | 同步执行 Python 代码（兼容旧 API 格式） |
 | `/api/run_cell_stream` | POST | 流式执行代码，通过 SSE 实时推送 stdout/stderr/富媒体（P2 新增） |
 | `/api/interrupt_kernel` | POST | 中断当前代码执行（control 通道 + GPU 专用中断） |
@@ -392,7 +392,7 @@ data: [DONE]
 ### ReAct Agent 与结构化上下文（2026-08）
 
 - **ReAct Agent** — AI Chat 升级为轻量 ReAct 代理，新增 `core/agent.py`（循环/双协议）、`core/tools.py`（6 个工具注册表）与 `/api/agent_call` SSE 端点；自动探测 LLM 是否支持 function calling，不支持时降级为文本 JSON 协议
-- **LiteLLM 网关** — LLM 传输层拆分至 `core/llm.py`：安装 `litellm` 后自动统一走 LiteLLM（模型 provider 前缀归一化、错误分类），未安装则透明降级为原生 `requests`；`USE_LITELLM=0/1` 可强制开关
+- **OpenAI SDK 传输层** — LLM 传输层拆分至 `core/llm.py`：通过官方 `openai` SDK 调用 LiteLLM Proxy（base_url 归一化、超时/重试、错误分类），未安装则透明降级为原生 `requests`；`USE_OPENAI_SDK=0/1` 可强制开关
 - **结构化上下文** — 新增 `core/context.py` 与 `/api/context`，将"全量灌入 Notebook 代码"替换为内核快照（变量表 + 最近 Out + 最近错误栈）；内核错误摘要由 `core/kernel.py` 记录
 - **智能工具** — Agent 可执行代码单元（`run_cell`）、查变量表（`get_variables`）、列/读 Notebook（`list_files`/`read_nb`）、查 GPU（`gpu_status`）与内核状态（`kernel_status`）；前端 `main.js` 渲染工具调用过程
 - **测试** — 新增 `tests/unit/test_agent.py`、`test_context.py`、`test_tools.py` 与 `tests/js/agent-stream.test.mjs`

@@ -107,36 +107,40 @@ def test_function_calling_round_trip(monkeypatch):
     )
 
     types = [e['type'] for e in events]
-    assert types == ['status', 'tool_call', 'tool_result', 'content', 'content', 'content', 'done']
+    # tool_call round (nostream) + final-answer round (nostream content).
+    assert types == ['status', 'tool_call', 'tool_result', 'content', 'done']
     assert events[1]['name'] == 'run_cell'
     assert events[1]['arguments'] == {'code': 'print(1)'}
     assert events[2]['ok'] is True
     assert events[2]['summary'].startswith('42')
-    assert events[-1]['final'] == '执行结果已返回执行结果已返回'
+    assert events[3]['text'] == '执行结果已返回'
+    assert events[-1]['final'] == '执行结果已返回'
     assert len(calls) == 2
 
     # Every nostream decision round carries the function schemas in
-    # function-calling mode; the final answer text streams via _chat_stream.
+    # function-calling mode.
     assert calls[0][4] is True
     assert calls[1][4] is True
 
 
 def test_text_protocol_fallback(monkeypatch):
-    reply_action = {'content': '{"action": "gpu_status", "arguments": {}}', 'tool_calls': None}
-    reply_final = {'content': 'GPU 运行正常', 'tool_calls': None}
-
+    # Text-protocol mode streams the reply directly; no separate re-stream.
     events, calls = _run(
         monkeypatch,
-        nostream_replies=[reply_action, reply_final],
-        stream_chunks=['（已生成完整回答）'],
+        nostream_replies=[],
+        stream_chunks=['GPU', ' 正常'],
         probe=False,
     )
 
-    assert events[1]['name'] == 'gpu_status'
-    # final text = nostream content + streamed deltas
-    assert events[-1]['final'] == 'GPU 运行正常（已生成完整回答）'
-    # No tools sent in text mode.
-    assert calls[0][4] is False
+    types = [e['type'] for e in events]
+    # status -> stream deltas -> done. No tool_call because the streamed text
+    # is plain (no embedded ACTION JSON).
+    assert types == ['status', 'content', 'content', 'done']
+    assert events[1]['text'] == 'GPU'
+    assert events[2]['text'] == ' 正常'
+    assert events[-1]['final'] == 'GPU 正常'
+    # _chat_nostream should not be called in text mode.
+    assert calls == []
 
 
 def test_max_steps_guard(monkeypatch):
@@ -174,15 +178,12 @@ def test_llm_failure_yields_error_event(monkeypatch):
 def test_system_prompt_includes_structured_context(monkeypatch):
     captured = {}
 
-    def fake_nostream(url, token, model, messages, tools, timeout=60, backend=None):
-        captured['messages'] = messages
-        return {'content': 'OK', 'tool_calls': None}
-
     def fake_stream(url, token, model, messages, timeout=180, backend=None):
-        yield from ()
+        captured['messages'] = messages
+        return
+        yield  # pragma: no cover - makes this a generator
 
     monkeypatch.setattr(agent_module, 'probe_tool_support', lambda *a, **k: False)
-    monkeypatch.setattr(agent_module, '_chat_nostream', fake_nostream)
     monkeypatch.setattr(agent_module, '_chat_stream', fake_stream)
 
     list(agent_loop(

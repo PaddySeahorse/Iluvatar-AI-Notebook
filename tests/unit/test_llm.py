@@ -1,8 +1,8 @@
 """Unit tests for the LLM transport layer (core/llm.py).
 
-Both backends (LiteLLM and the plain requests fallback) are exercised with
-injected fakes so no network is needed.  Also covers the URL/model
-normalization helpers and the transport-neutral public API.
+Both backends (OpenAI SDK against the LiteLLM proxy and the plain requests
+fallback) are exercised with injected fakes so no network is needed.  Also
+covers the URL normalization helper and the transport-neutral public API.
 """
 
 import pytest
@@ -19,13 +19,6 @@ def test_to_api_base_strips_chat_suffix():
     assert llm_module._to_api_base('https://x.com/v1/chat/completions') == 'https://x.com/v1'
     assert llm_module._to_api_base('https://x.com/v1/') == 'https://x.com/v1'
     assert llm_module._to_api_base('https://x.com') == 'https://x.com'
-
-
-def test_to_litellm_model_prefixes_openai():
-    assert llm_module._to_litellm_model('dsv4') == 'openai/dsv4'
-    assert llm_module._to_litellm_model('openai/gpt-4o') == 'openai/gpt-4o'
-    with pytest.raises(LLMError):
-        llm_module._to_litellm_model('')
 
 
 def test_normalize_tool_calls():
@@ -121,35 +114,62 @@ class _FakeResp:
 
 
 # ---------------------------------------------------------------------------
-# LiteLLM backend
+# OpenAI SDK backend (LiteLLM proxy)
 # ---------------------------------------------------------------------------
 
-class _LiteLLMFake:
-    """Minimal stand-in for the ``litellm`` module (instance-based mutable)."""
+class _OpenAIFake:
+    """Minimal stand-in for the ``openai`` module (instance-based mutable)."""
 
-    class exceptions:
-        class Timeout(Exception):
-            pass
+    class APITimeoutError(Exception):
+        pass
 
-        class RateLimitError(Exception):
-            pass
+    class RateLimitError(Exception):
+        pass
 
-        class AuthenticationError(Exception):
-            pass
+    class AuthenticationError(Exception):
+        pass
 
-        class BadRequestError(Exception):
-            pass
+    class BadRequestError(Exception):
+        pass
+
+    class APIConnectionError(Exception):
+        pass
+
+    last_client = None
 
     def __init__(self):
         self.completion_response = None
         self.completion_raised = None
         self.call_kwargs = None
+        self.clients = []
 
-    def completion(self, **kwargs):
-        self.call_kwargs = kwargs
-        if self.completion_raised:
-            raise self.completion_raised
-        return self.completion_response
+    class _Completions:
+        def create(self, **kwargs):
+            client = _OpenAIFake.last_client
+            fake = client._fake
+            fake.call_kwargs = kwargs
+            if fake.completion_raised:
+                raise fake.completion_raised
+            return fake.completion_response
+
+    class _Chat:
+        def __init__(self, completions):
+            self.completions = completions
+
+    def OpenAI(self, base_url=None, api_key=None, max_retries=0):
+        client = _FakeClient(base_url, api_key, max_retries, self)
+        self.clients.append(client)
+        _OpenAIFake.last_client = client
+        return client
+
+
+class _FakeClient:
+    def __init__(self, base_url, api_key, max_retries, fake):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.max_retries = max_retries
+        self._fake = fake
+        self.chat = _OpenAIFake._Chat(_OpenAIFake._Completions())
 
 
 class _Msg:
@@ -172,20 +192,21 @@ def _mk_nostream_response(content='hi', tool_calls=None):
     return _Resp(_Msg(content=content, tool_calls=tool_calls))
 
 
-def test_litellm_nostream_success(monkeypatch):
-    fake = _LiteLLMFake()
-    fake.completion_response = _mk_nostream_response(content='hi from lite')
-    monkeypatch.setattr(llm_module, 'litellm', fake)
+def test_openai_nostream_success(monkeypatch):
+    fake = _OpenAIFake()
+    fake.completion_response = _mk_nostream_response(content='hi from proxy')
+    monkeypatch.setattr(llm_module, 'openai', fake)
 
-    out = chat_nostream('https://x.com/v1/chat/completions', 'tok', 'dsv4',
-                        [{'role': 'user', 'content': 'hi'}], backend='litellm')
-    assert out == {'content': 'hi from lite', 'tool_calls': None}
-    assert fake.call_kwargs['model'] == 'openai/dsv4'
-    assert fake.call_kwargs['api_base'] == 'https://x.com/v1'
-    assert fake.call_kwargs['api_key'] == 'tok'
+    out = chat_nostream('https://proxy.example/v1/chat/completions', 'tok', 'dsv4',
+                        [{'role': 'user', 'content': 'hi'}], backend='openai')
+    assert out == {'content': 'hi from proxy', 'tool_calls': None}
+    client = fake.clients[0]
+    assert client.base_url == 'https://proxy.example/v1'
+    assert client.api_key == 'tok'
+    assert fake.call_kwargs['model'] == 'dsv4'
 
 
-def test_litellm_nostream_tool_calls(monkeypatch):
+def test_openai_nostream_tool_calls(monkeypatch):
     class _Fn:
         name = 'run_cell'
         arguments = '{"code": "1+1"}'
@@ -195,27 +216,35 @@ def test_litellm_nostream_tool_calls(monkeypatch):
         type = 'function'
         function = _Fn()
 
-    fake = _LiteLLMFake()
+    fake = _OpenAIFake()
     fake.completion_response = _mk_nostream_response(content='', tool_calls=[_TC()])
-    monkeypatch.setattr(llm_module, 'litellm', fake)
+    monkeypatch.setattr(llm_module, 'openai', fake)
 
-    out = chat_nostream('http://x', 't', 'openai/m', [], tools=[{'x': 1}], backend='litellm')
+    out = chat_nostream('http://x', 't', 'm', [], tools=[{'x': 1}], backend='openai')
     assert out['content'] == ''
     assert out['tool_calls'][0]['id'] == 'call_9'
     assert out['tool_calls'][0]['function']['name'] == 'run_cell'
+    assert fake.call_kwargs['tool_choice'] == 'auto'
 
 
-def test_litellm_nostream_maps_errors(monkeypatch):
-    fake = _LiteLLMFake()
-    fake.completion_raised = fake.exceptions.Timeout('slow')
-    monkeypatch.setattr(llm_module, 'litellm', fake)
+def test_openai_nostream_maps_errors(monkeypatch):
+    fake = _OpenAIFake()
+    cases = [
+        (fake.APITimeoutError('slow'), '超时'),
+        (fake.RateLimitError('429'), '限流'),
+        (fake.AuthenticationError('401'), '鉴权失败'),
+        (fake.BadRequestError('400'), '被拒绝'),
+        (fake.APIConnectionError('down'), '无法连接'),
+    ]
+    for exc, expected in cases:
+        fake.completion_raised = exc
+        monkeypatch.setattr(llm_module, 'openai', fake)
+        with pytest.raises(LLMError) as ei:
+            chat_nostream('http://x', '', 'm', [], backend='openai')
+        assert expected in str(ei.value)
 
-    with pytest.raises(LLMError) as ei:
-        chat_nostream('http://x', '', 'm', [], backend='litellm')
-    assert '超时' in str(ei.value)
 
-
-def test_litellm_stream(monkeypatch):
+def test_openai_stream(monkeypatch):
     class _Delta:
         content = 'Hel'
 
@@ -225,45 +254,55 @@ def test_litellm_stream(monkeypatch):
     class _Chunk:
         choices = [_StreamChoice()]
 
-    fake = _LiteLLMFake()
+    fake = _OpenAIFake()
     fake.completion_response = iter([_Chunk()])
-    monkeypatch.setattr(llm_module, 'litellm', fake)
+    monkeypatch.setattr(llm_module, 'openai', fake)
 
-    assert list(chat_stream('http://x', '', 'm', [], backend='litellm')) == ['Hel']
+    assert list(chat_stream('http://x', '', 'm', [], backend='openai')) == ['Hel']
     assert fake.call_kwargs['stream'] is True
 
 
-def test_litellm_probe(monkeypatch):
-    fake = _LiteLLMFake()
+def test_openai_probe(monkeypatch):
+    fake = _OpenAIFake()
     fake.completion_response = _mk_nostream_response()
-    monkeypatch.setattr(llm_module, 'litellm', fake)
+    monkeypatch.setattr(llm_module, 'openai', fake)
 
-    assert probe_tool_support('http://x', '', 'm', backend='litellm') is True
+    assert probe_tool_support('http://x', '', 'm', backend='openai') is True
 
 
 # ---------------------------------------------------------------------------
 # transport-neutral dispatch
 # ---------------------------------------------------------------------------
 
-def test_auto_dispatch_prefers_litellm_when_available(monkeypatch):
+def test_auto_dispatch_prefers_openai_sdk_when_available(monkeypatch):
     import core.llm as m
 
     called = []
 
-    def fake_lite(url, token, model, messages, tools=None, timeout=60):
-        called.append('litellm')
+    def fake_openai(url, token, model, messages, tools=None, timeout=60):
+        called.append('openai')
         return {'content': 'ok', 'tool_calls': None}
 
     def fake_req(url, token, model, messages, tools=None, timeout=60):
         called.append('requests')
         return {'content': 'ok', 'tool_calls': None}
 
-    monkeypatch.setattr(m, 'is_litellm_enabled', lambda: True)
-    monkeypatch.setattr(m, '_litellm_nostream', fake_lite)
+    monkeypatch.setattr(m, 'is_openai_sdk_enabled', lambda: True)
+    monkeypatch.setattr(m, '_openai_nostream', fake_openai)
     monkeypatch.setattr(m, '_requests_nostream', fake_req)
 
     chat_nostream('http://x', '', 'm', [])
-    assert called == ['litellm']
+    assert called == ['openai']
 
     chat_nostream('http://x', '', 'm', [], backend='requests')
-    assert called == ['litellm', 'requests']
+    assert called == ['openai', 'requests']
+
+
+def test_use_openai_sdk_env_overrides(monkeypatch):
+    monkeypatch.setattr(llm_module, 'OPENAI_AVAILABLE', False)
+    monkeypatch.setenv('USE_OPENAI_SDK', '0')
+    assert llm_module.is_openai_sdk_enabled() is False
+    monkeypatch.setenv('USE_OPENAI_SDK', 'true')
+    assert llm_module.is_openai_sdk_enabled() is False
+    monkeypatch.setattr(llm_module, 'OPENAI_AVAILABLE', True)
+    assert llm_module.is_openai_sdk_enabled() is True

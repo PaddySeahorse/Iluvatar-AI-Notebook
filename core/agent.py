@@ -182,12 +182,22 @@ def agent_loop(
 
     ``use_tools_probe`` exists for tests to force function-calling or text
     protocol shortcuts without network access.  ``backend`` forces the LLM
-    transport ("litellm" or "requests"); ``None`` auto-selects.
+    transport ("openai" or "requests"); ``None`` auto-selects.
     """
-    tool_schemas = get_tool_schemas()
-    tool_context = build_tool_context(state_module)
+    try:
+        tool_schemas = get_tool_schemas()
+        tool_context = build_tool_context(state_module)
+    except Exception as e:
+        yield {'type': 'error', 'message': f'Agent 上下文初始化失败: {e.__class__.__name__}: {e}'}
+        yield {'type': 'done', 'final': ''}
+        return
 
-    use_tools = bool(use_tools_probe) and probe_tool_support(url, token, model, backend=backend)
+    try:
+        use_tools = bool(use_tools_probe) and probe_tool_support(url, token, model, backend=backend)
+    except Exception as e:
+        yield {'type': 'error', 'message': f'LLM 连接探测失败: {e.__class__.__name__}: {e}'}
+        yield {'type': 'done', 'final': ''}
+        return
     system_prompt = _FUNCTION_SYSTEM if use_tools else _TEXT_PROTOCOL_SYSTEM
 
     if include_context:
@@ -209,17 +219,36 @@ def agent_loop(
 
     tool_call_count = 0
     for step in range(max_steps):
-        try:
-            reply = _chat_nostream(
-                url, token, model, messages, tools=(tool_schemas if use_tools else None),
-                backend=backend,
-            )
-        except AgentError as e:
-            yield {'type': 'error', 'message': str(e)}
-            yield {'type': 'done', 'final': ''}
-            return
+        # Text-protocol mode (no native function-calling) streams tokens so the
+        # user sees the reply as it's generated.  Function-calling mode keeps
+        # the non-streaming call because accumulating tool_calls across stream
+        # chunks adds complexity for marginal UX gain in tool-heavy flows.
+        if use_tools:
+            try:
+                reply = _chat_nostream(
+                    url, token, model, messages, tools=tool_schemas,
+                    backend=backend,
+                )
+            except AgentError as e:
+                yield {'type': 'error', 'message': str(e)}
+                yield {'type': 'done', 'final': ''}
+                return
 
-        content = reply.get('content') or ''
+            content = reply.get('content') or ''
+            streamed = False
+        else:
+            content_parts = []
+            try:
+                for delta in _chat_stream(url, token, model, messages, backend=backend):
+                    content_parts.append(delta)
+                    yield {'type': 'content', 'text': delta}
+            except AgentError as e:
+                yield {'type': 'error', 'message': str(e)}
+                yield {'type': 'done', 'final': ''}
+                return
+            content = ''.join(content_parts)
+            reply = {'content': content, 'tool_calls': None}
+            streamed = True
         tool_calls = _normalize_tool_calls(reply) if use_tools else None
 
         if tool_calls:
@@ -276,18 +305,15 @@ def agent_loop(
 
         # No tool call: this is the final answer.
         messages.append({'role': 'assistant', 'content': content})
-        try:
-            full = []
-            for delta in _chat_stream(url, token, model, messages, backend=backend):
-                full.append(delta)
-                yield {'type': 'content', 'text': delta}
-            final = content + ''.join(full)
-        except AgentError as e:
-            yield {'type': 'error', 'message': str(e)}
-            yield {'type': 'done', 'final': ''}
+        if streamed:
+            # Already yielded token-by-token above; just close the stream.
+            yield {'type': 'done', 'final': content}
             return
-
-        yield {'type': 'done', 'final': final}
+        # Function-calling mode: content was collected non-streamingly. Yield
+        # it as a single content chunk so the UI shows the same progressive
+        # accumulation pattern as text mode, then close.
+        yield {'type': 'content', 'text': content}
+        yield {'type': 'done', 'final': content}
         return
 
     yield {'type': 'error', 'message': f"已达到最大工具调用步数({max_steps})，请尝试更具体的问题。"}

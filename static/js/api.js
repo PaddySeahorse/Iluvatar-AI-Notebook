@@ -35,7 +35,8 @@ export async function initConfig() {
     return apiConfig;
 }
 
-// Save API configuration (to localStorage and, if available, the backend .env)
+// Save API configuration (to localStorage and, if available, the backend
+// host-side config file ~/.Iluvatar-AI-Notebook/config.yaml)
 export async function saveApiConfig(url, token, model) {
     apiConfig.url = url;
     apiConfig.token = token;
@@ -51,7 +52,7 @@ export async function saveApiConfig(url, token, model) {
         });
         return res.ok;
     } catch (e) {
-        console.error('Failed to persist API config to .env:', e);
+        console.error('Failed to persist API config to the backend config file:', e);
         return false;
     }
 }
