@@ -24,3 +24,6 @@ Thumbs.db
 
 # Project internal notes (not for version control)
 .monkeycode/
+
+# Chainlit auto-generated i18n files (regenerated on startup)
+.chainlit/translations/

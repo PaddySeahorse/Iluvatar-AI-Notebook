@@ -1,20 +1,18 @@
-"""Static analysis (lint) route for code cells."""
+"""Static analysis (lint) route for code cells (方案三：FastAPI 版)."""
 
 import ast
 import builtins
 
-from flask import Blueprint, request, jsonify
+from fastapi import APIRouter, Request
+from starlette.concurrency import run_in_threadpool
 
-from core.routes import state
+from core.routes import json_body, state
 
-bp = Blueprint('lint', __name__)
+router = APIRouter()
 
 
-@bp.route('/api/lint_cell', methods=['POST'])
-def lint_cell():
-    data = request.json or {}
-    code = data.get('code', '')
-
+def _lint_cell(code: str, kernel_manager):
+    """Pure lint logic, extracted so it can run inside an executor thread."""
     errors = []
     warnings = []
 
@@ -25,22 +23,16 @@ def lint_cell():
         errors.append({
             'line': e.lineno or 1,
             'col': e.offset or 1,
-            'message': str(e)
+            'message': str(e),
         })
-        return jsonify({
-            'errors': errors,
-            'warnings': warnings
-        })
-    except Exception as e:
+        return {'errors': errors, 'warnings': warnings}
+    except Exception as e:  # noqa: BLE001
         errors.append({
             'line': 1,
             'col': 1,
-            'message': f"AST 解析未知错误: {str(e)}"
+            'message': f"AST 解析未知错误: {str(e)}",
         })
-        return jsonify({
-            'errors': errors,
-            'warnings': warnings
-        })
+        return {'errors': errors, 'warnings': warnings}
 
     # 2. Check for undefined variables
     defined_names = set(dir(builtins))
@@ -95,7 +87,7 @@ def lint_cell():
     NameFinder().visit(root)
 
     # Check loaded names against local definition and kernel namespace
-    cached_var_names = set(v['name'] for v in state().kernel_manager.get_variables())
+    cached_var_names = set(v['name'] for v in kernel_manager.get_variables())
     for name in loaded_names:
         if name not in defined_names and name not in cached_var_names:
             class NameLocator(ast.NodeVisitor):
@@ -104,11 +96,18 @@ def lint_cell():
                         warnings.append({
                             'line': node.lineno,
                             'col': node.col_offset,
-                            'message': f"未定义的变量: '{name}'"
+                            'message': f"未定义的变量: '{name}'",
                         })
+
             NameLocator().visit(root)
 
-    return jsonify({
-        'errors': errors,
-        'warnings': warnings
-    })
+    return {'errors': errors, 'warnings': warnings}
+
+
+@router.post('/api/lint_cell')
+async def lint_cell(request: Request):
+    s = state(request)
+    data = await json_body(request)
+    code = data.get('code', '') or ''
+
+    return await run_in_threadpool(_lint_cell, code, s.kernel_manager)

@@ -3,9 +3,12 @@
 # 依赖来源：docs/plan/dependency-management.md（P1 阶段），
 # 并按代码库实际导入裁剪（lint_routes 使用 stdlib ast，无需 pylint；
 # python-dotenv 未使用，app.py 手动解析 .env）。
+# 方案三（统一 ASGI 入口）：主框架迁移为 FastAPI + uvicorn + Chainlit。
 
 # ── Web 框架 ──────────────────────────────────────
-Flask>=3.0
+fastapi>=0.110
+uvicorn>=0.27
+Flask>=3.0            # 仅保留：app.py 薄壳与旧启动方式向后兼容
 flask-cors>=4.0
 
 # ── Jupyter 内核生态（P0/P1 新增，核心）────────────
@@ -22,6 +25,9 @@ PyYAML>=6.0
 
 # ── 用户代码依赖（集成测试会用到 matplotlib）──────
 matplotlib>=3.7
+
+# ── Chainlit 聊天界面（挂载到 /agent）───────────────
+chainlit>=2.12.0
 
 # ── 开发 / 测试 ────────────────────────────────────
 pytest>=7.0

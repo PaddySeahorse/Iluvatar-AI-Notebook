@@ -46,11 +46,14 @@
 
 ```
 .
-├── app.py                 # 入口点：配置加载、运行时状态、Blueprint 装配与启动
+├── app.py                 # 兼容薄壳：python app.py / uvicorn app:app 仍可用（转发到 app_fastapi）
+├── app_fastapi.py         # FastAPI (ASGI) 统一入口（方案三）：Notebook /api/* + Chainlit /agent
+├── chainlit_app.py        # Chainlit 应用 target（mount_chainlit 加载），复用 core.agent / core.tools
 ├── core/                  # 后端核心逻辑（模块化，ISSUE-007 refactor）
 │   ├── __init__.py
 │   ├── errors.py          # 自定义异常层次（AppError / KernelError / FileStorageError / UpstreamAPIError）
 │   ├── kernel.py          # KernelManager — 基于 jupyter_client + ipykernel 的内核管理（含 watchdog + 错误记录）
+│   ├── state.py           # 共享运行时状态（kernel_manager / WORKSPACE_DIR / LLM 默认值），FastAPI 与 Chainlit 共用
 │   ├── context.py         # 结构化上下文构建器（变量表 / 最近 Out / 最近错误栈）
 │   ├── tools.py           # ReAct Agent 工具注册表与执行（run_cell / 变量 / 文件 / GPU / 内核状态）
 │   ├── agent.py           # 轻量 ReAct 循环（function calling + 文本 JSON 双协议）
@@ -58,15 +61,20 @@
 │   ├── gpu.py             # 天数智芯 GPU 遥测（pynvml / IXUCA SDK）
 │   ├── iluvatar_provisioner.py  # 自定义 KernelProvisioner，GPU 资源分配与专用中断
 │   ├── utils.py           # 通用工具（is_safe_path 路径校验）
-│   └── routes/            # Flask Blueprint 路由层
-│       ├── __init__.py    # 路由与错误处理器注册
+│   └── routes/            # FastAPI APIRouter 路由层
+│       ├── __init__.py    # 路由与错误处理器注册（state / json_body 辅助）
 │       ├── static_routes.py   # 静态资源与首页
 │       ├── gpu_routes.py      # GPU 状态
 │       ├── kernel_routes.py   # 代码执行 / 流式 SSE / 中断 / 补全 / 内省 / 变量
 │       ├── ai_routes.py       # API 配置与 AI 代理调用（流式 + 非流式）
 │       ├── agent_routes.py    # ReAct Agent 调用（/api/agent_call）与结构化上下文（/api/context）
 │       ├── lint_routes.py     # 静态代码检查（AST 分析）
-│       └── file_routes.py     # Notebook 文件管理
+│       ├── file_routes.py     # Notebook 文件管理
+│       ├── metrics_routes.py  # /api/metrics 与 Prometheus 文本格式
+│       └── litellm_routes.py  # LiteLLM Proxy 反向代理（catch-all，独占末尾）
+├── public/               # Chainlit 自定义样式与脚本（/agent 页嵌入 Notebook iframe）
+├── .chainlit/            # Chainlit 运行时配置（config.toml）
+├── chainlit.md           # Chainlit 欢迎页说明（/agent 主页文案）
 ├── kernels/
 │   └── iluvatar_python/
 │       └── kernel.json    # 天数智芯专用内核描述文件
@@ -142,7 +150,7 @@ pip install -e . --no-deps
 jupyter kernelspec install kernels/iluvatar_python --prefix /usr/local
 
 # 3. 启动时开启 Provisioner
-USE_ILUVATAR_PROVISIONER=true python app.py
+USE_ILUVATAR_PROVISIONER=true python app_fastapi.py
 ```
 
 Provisioner 会在内核启动时自动注入 `IXUCA_VISIBLE_DEVICES` 等环境变量并分配 GPU 设备，中断时优先使用 `ixuca-smi --kill-compute` GPU 专用中断。
@@ -183,11 +191,26 @@ ALLOWED_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
 
 ### 启动
 
+方案三为**单进程统一入口**：一个 uvicorn 进程同时提供 Notebook 与 Chainlit Agent。
+
 ```bash
+# 启动 FastAPI 统一入口（Notebook / + /api/* + Chainlit /agent）
+python app_fastapi.py
+
+# 等价于上面的 uvicorn 命令
+uvicorn app_fastapi:app --host 0.0.0.0 --port 5000
+
+# Flask 薄壳仍然可用（转发到 app_fastapi，效果相同）
 python app.py
 ```
 
-访问 `http://127.0.0.1:5000` 即可使用。
+访问：
+
+- `http://127.0.0.1:5000/` —— Notebook 主界面（原有全部 API 路径不变）
+- `http://127.0.0.1:5000/agent` —— Chainlit Agent 聊天界面（左侧自动嵌入 Notebook，两者共享同一内核与变量）
+
+> 说明：Chainlit 挂载在 `/agent` 子路径（`chainlit.utils.mount_chainlit`），
+> `/agent` 会自动 307 重定向到 `/agent/`。`OPENI_SELF_PORT` 默认 5000。
 
 ### 运行测试
 
@@ -205,8 +228,8 @@ node tests/js/sse-client.test.mjs
 node tests/js/kernel-indicator.test.mjs
 node tests/js/output-renderer.test.mjs
 
-# 端到端测试（Playwright，需先启动 Flask 服务）
-python app.py &
+# 端到端测试（Playwright，需先启动 FastAPI 服务）
+python app_fastapi.py &
 npx playwright test e2e/p2-streaming.spec.mjs
 npx playwright test e2e/p3-completion-inspect.spec.mjs
 ```

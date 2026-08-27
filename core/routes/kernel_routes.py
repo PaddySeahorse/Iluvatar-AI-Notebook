@@ -1,26 +1,39 @@
-"""Kernel execution, interrupt, status and variable routes."""
+"""Kernel execution, interrupt, status and variable routes (方案三：FastAPI 版).
+
+与 Flask 版的差异集中在两点：
+
+* 状态改为 request-time 读取 ``request.app.state.app_state``（见
+  :func:`core.routes.state`），语义不变。
+* 阻塞的内核调用（``execute`` / ``complete`` / ``inspect`` /
+  ``get_variables`` …) 通过 ``run_in_threadpool`` 放入线程池，避免卡住
+  事件循环；SSE 端点仍用同步 generator + ``StreamingResponse``（iterable
+  由 Starlette 在线程池中迭代）。
+"""
 
 import json
 import time
 
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from core.errors import KernelError
 from core.kernel import KernelManager
-from core.routes import state
+from core.routes import json_body, state
 
-bp = Blueprint('kernel', __name__)
+router = APIRouter()
 
 
-@bp.route('/api/run_cell', methods=['POST'])
-def run_cell():
-    data = request.json or {}
-    code = data.get('code', '')
+@router.post('/api/run_cell')
+async def run_cell(request: Request):
+    s = state(request)
+    data = await json_body(request)
+    code = data.get('code', '') or ''
 
     start_time = time.time()
 
     try:
-        result = state().kernel_manager.execute(code)
+        result = await run_in_threadpool(s.kernel_manager.execute, code)
     except RuntimeError as e:
         # KernelManager raises RuntimeError when queues are not initialised
         raise KernelError(
@@ -37,18 +50,18 @@ def run_cell():
 
     elapsed_time = round(time.time() - start_time, 3)
 
-    return jsonify({
+    return {
         'success': result.get('success', False),
         'stdout': result.get('stdout', ''),
         'stderr': result.get('stderr', ''),
         'html': result.get('html', ''),
         'elapsed_time': elapsed_time,
-        'plots': result.get('plots', [])
-    })
+        'plots': result.get('plots', []),
+    }
 
 
-@bp.route('/api/run_cell_stream', methods=['POST'])
-def run_cell_stream():
+@router.post('/api/run_cell_stream')
+async def run_cell_stream(request: Request):
     """Stream code execution via Server-Sent Events.
 
     Request:  {"code": "..."}
@@ -63,21 +76,25 @@ def run_cell_stream():
 
     The stream terminates with ``data: [DONE]``.
     """
-    data = request.json or {}
-    code = data.get('code', '')
+    s = state(request)
+    data = await json_body(request)
+    code = data.get('code', '') or ''
 
     if not code.strip():
-        return jsonify({'error': 'Empty code'}), 400
+        return JSONResponse({'error': 'Empty code'}, status_code=400)
+
+    # 先在 handler 内取回 kernel_manager 再闭包引用：StreamingResponse 的
+    # generator 在流式期间运行，届时不再有请求上下文可读。
+    kernel_manager = s.kernel_manager
 
     def generate():
-        kernel_manager = state().kernel_manager
         for msg in kernel_manager.execute_stream(code):
             yield f'data: {json.dumps(msg)}\n\n'
         yield 'data: [DONE]\n\n'
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
+    return StreamingResponse(
+        generate(),
+        media_type='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',
@@ -86,35 +103,34 @@ def run_cell_stream():
     )
 
 
-@bp.route('/api/interrupt_kernel', methods=['POST'])
-def interrupt_kernel():
-    kernel_manager = state().kernel_manager
-    if kernel_manager.interrupt():
-        return jsonify({'success': True, 'message': '中断信号已发送 (Interrupt signal sent)'})
-    else:
-        if kernel_manager.is_kernel_alive():
-            return jsonify({'success': False, 'message': 'Failed to send interrupt signal'})
-        return jsonify({'success': False, 'message': 'Kernel is not running'})
+@router.post('/api/interrupt_kernel')
+async def interrupt_kernel(request: Request):
+    kernel_manager = state(request).kernel_manager
+    if await run_in_threadpool(kernel_manager.interrupt):
+        return {'success': True, 'message': '中断信号已发送 (Interrupt signal sent)'}
+    if await run_in_threadpool(kernel_manager.is_kernel_alive):
+        return {'success': False, 'message': 'Failed to send interrupt signal'}
+    return {'success': False, 'message': 'Kernel is not running'}
 
 
-@bp.route('/api/kernel_status', methods=['GET'])
-def kernel_status():
+@router.get('/api/kernel_status')
+async def kernel_status(request: Request):
     """Return current kernel and watchdog health status."""
-    kernel_manager = state().kernel_manager
-    return jsonify({
-        'kernel_alive': kernel_manager.is_kernel_alive(),
-        'watchdog_alive': kernel_manager.is_watchdog_alive(),
+    kernel_manager = state(request).kernel_manager
+    return {
+        'kernel_alive': await run_in_threadpool(kernel_manager.is_kernel_alive),
+        'watchdog_alive': await run_in_threadpool(kernel_manager.is_watchdog_alive),
         'watchdog_interval_seconds': KernelManager.WATCHDOG_INTERVAL,
-    })
+    }
 
 
-@bp.route('/api/get_variables', methods=['GET'])
-def get_variables():
-    return jsonify(state().kernel_manager.get_variables())
+@router.get('/api/get_variables')
+async def get_variables(request: Request):
+    return await run_in_threadpool(state(request).kernel_manager.get_variables)
 
 
-@bp.route('/api/complete', methods=['POST'])
-def complete():
+@router.post('/api/complete')
+async def complete(request: Request):
     """Code completion (P3).
 
     Request:
@@ -128,24 +144,24 @@ def complete():
             "metadata": {...}
         }
 
-    Delegates to ``KernelManager.complete`` which wraps
-    ``jupyter_client``'s shell-channel ``complete_request`` (IPython jedi
-    completer). The kernel must already be started; if it isn't, an empty
-    match list is returned so the frontend can fail soft.
+    Delegates to ``KernelManager.complete`` which wraps ``jupyter_client``'s
+    shell-channel ``complete_request`` (IPython jedi completer). The kernel
+    must already be started; if it isn't, an empty match list is returned so
+    the frontend can fail soft.
     """
-    data = request.json or {}
-    code = data.get('code', '')
+    s = state(request)
+    data = await json_body(request)
+    code = data.get('code', '') or ''
     cursor_pos = data.get('cursor_pos', len(code))
 
     if not isinstance(cursor_pos, int) or cursor_pos < 0:
         cursor_pos = len(code)
 
-    result = state().kernel_manager.complete(code, cursor_pos)
-    return jsonify(result)
+    return await run_in_threadpool(s.kernel_manager.complete, code, cursor_pos)
 
 
-@bp.route('/api/inspect', methods=['POST'])
-def inspect():
+@router.post('/api/inspect')
+async def inspect(request: Request):
     """Object introspection (? / ??) (P3).
 
     Request:
@@ -161,8 +177,9 @@ def inspect():
     ``detail_level`` 0 corresponds to ``?`` (docstring + signature);
     1 corresponds to ``??`` (full source).
     """
-    data = request.json or {}
-    code = data.get('code', '')
+    s = state(request)
+    data = await json_body(request)
+    code = data.get('code', '') or ''
     cursor_pos = data.get('cursor_pos', len(code))
     detail_level = data.get('detail_level', 0)
 
@@ -171,5 +188,4 @@ def inspect():
     if detail_level not in (0, 1):
         detail_level = 0
 
-    result = state().kernel_manager.inspect(code, cursor_pos, detail_level)
-    return jsonify(result)
+    return await run_in_threadpool(s.kernel_manager.inspect, code, cursor_pos, detail_level)

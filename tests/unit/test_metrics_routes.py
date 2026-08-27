@@ -6,20 +6,32 @@ Covers:
 - Every response carries an X-Request-ID header; a caller-supplied header is
   propagated, otherwise a fresh trace id is generated.
 - Requests accumulate http_requests counters in the shared registry.
+
+方案三适配：Flask test_client → starlette TestClient（FastAPI app）。
 """
 
 import pytest
+from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
-import app as notebook_app
-
+from app_fastapi import app
 from core.observability import get_metrics
+from core.state import app_state
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
     get_metrics().reset()
-    notebook_app.app.config.update(TESTING=True)
-    with notebook_app.app.test_client() as c:
+    fake_kernel = SimpleNamespace(
+        warm_start=lambda: None,
+        stop_watchdog=lambda: None,
+        shutdown=lambda: None,
+        is_kernel_alive=lambda: True,
+        is_watchdog_alive=lambda: True,
+        interrupt=lambda: True,
+    )
+    monkeypatch.setattr(app_state, 'kernel_manager', fake_kernel)
+    with TestClient(app) as c:
         yield c
     get_metrics().reset()
 
@@ -32,7 +44,7 @@ class TestMetricsEndpoints:
         resp = client.get('/api/metrics')
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert 'uptime_seconds' in data
         assert data['kernel']['restarts_total'] == 1
         assert data['executions']['total'] == 1
@@ -43,8 +55,8 @@ class TestMetricsEndpoints:
         resp = client.get('/metrics')
 
         assert resp.status_code == 200
-        assert resp.mimetype.startswith('text/plain')
-        body = resp.get_data(as_text=True)
+        assert resp.headers['content-type'].startswith('text/plain')
+        body = resp.text
         assert '# TYPE notebook_kernel_restarts_total counter' in body
         assert 'notebook_kernel_starts_total' in body
 

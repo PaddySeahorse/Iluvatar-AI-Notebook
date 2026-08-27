@@ -1,9 +1,10 @@
-"""Flask route integration tests against a real ipykernel.
+"""FastAPI route integration tests against a real ipykernel.
 
 Validates the P1 backward-compatibility contract for the kernel routes
 (/api/run_cell, /api/run_cell_stream, /api/kernel_status, /api/get_variables,
-/api/interrupt_kernel) by driving the real Flask app with a real kernel
-subprocess — no mocking.
+/api/interrupt_kernel) by driving the real FastAPI app with a real kernel
+subprocess — no mocking. Lifespan warm-starts / shuts down the shared
+``core.state.app_state.kernel_manager``.
 
 Marked ``integration`` so they can be deselected in fast CI lanes:
     pytest -m "not integration"
@@ -14,18 +15,18 @@ import threading
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
-import app as notebook_app
+from app_fastapi import app
+from core.state import app_state
 
 
 @pytest.fixture(scope="module")
 def client():
-    """Real Flask test client with a warm-started kernel, shut down at teardown."""
-    notebook_app.app.config.update(TESTING=True)
-    notebook_app.kernel_manager.warm_start()
-    with notebook_app.app.test_client() as c:
+    """Real FastAPI test client; lifespan warm-starts the kernel, teardown
+    stops it (shutdown runs in the lifespan finally block)."""
+    with TestClient(app) as c:
         yield c
-    notebook_app.kernel_manager.shutdown()
 
 
 def _parse_sse_events(body: str):
@@ -54,7 +55,7 @@ class TestKernelRoutesIntegration:
         resp = client.post('/api/run_cell', json={'code': "print('hello')"})
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         # Contract from core/routes/kernel_routes.py
         assert set(data.keys()) >= {
             'success', 'stdout', 'stderr', 'html', 'elapsed_time', 'plots'
@@ -70,7 +71,7 @@ class TestKernelRoutesIntegration:
         resp = client.post('/api/run_cell', json={'code': '1 / 0'})
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data['success'] is False
         assert 'ZeroDivisionError' in data['stderr']
 
@@ -81,9 +82,9 @@ class TestKernelRoutesIntegration:
         )
 
         assert resp.status_code == 200
-        assert resp.content_type.startswith('text/event-stream')
+        assert resp.headers['content-type'].startswith('text/event-stream')
 
-        events = _parse_sse_events(resp.get_data(as_text=True))
+        events = _parse_sse_events(resp.text)
         assert events[-1] == '[DONE]'
 
         statuses = [e for e in events if isinstance(e, dict) and e.get('type') == 'status']
@@ -106,7 +107,7 @@ class TestKernelRoutesIntegration:
         resp = client.get('/api/kernel_status')
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data['kernel_alive'] is True
         assert data['watchdog_alive'] is True
 
@@ -115,7 +116,7 @@ class TestKernelRoutesIntegration:
 
         resp = client.get('/api/get_variables')
         assert resp.status_code == 200
-        names = [v['name'] for v in resp.get_json()]
+        names = [v['name'] for v in resp.json()]
         assert 'route_var' in names
 
     def test_interrupt_route_stops_long_running_cell(self, client):
@@ -126,7 +127,7 @@ class TestKernelRoutesIntegration:
         def run_long():
             # Drive the shared kernel_manager directly so the test client
             # stays free to issue the interrupt request.
-            execute_result['r'] = notebook_app.kernel_manager.execute(
+            execute_result['r'] = app_state.kernel_manager.execute(
                 "while True:\n    pass"
             )
             done.set()
@@ -137,7 +138,7 @@ class TestKernelRoutesIntegration:
 
         resp = client.post('/api/interrupt_kernel')
         assert resp.status_code == 200
-        assert resp.get_json()['success'] is True
+        assert resp.json()['success'] is True
 
         assert done.wait(timeout=10), "long-running cell should return after interrupt"
         assert execute_result['r']['success'] is False
@@ -147,6 +148,6 @@ class TestKernelRoutesIntegration:
         client.post('/api/run_cell', json={'code': '_acc = 100'})
         resp = client.post('/api/run_cell', json={'code': '_acc += 1\nprint(_acc)'})
 
-        data = resp.get_json()
+        data = resp.json()
         assert data['success'] is True
         assert '101' in data['stdout']

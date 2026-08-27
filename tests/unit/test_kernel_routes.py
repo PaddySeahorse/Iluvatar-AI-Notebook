@@ -4,11 +4,17 @@ These complement the real-kernel integration tests by exercising the
 backward-compatible error contract (RuntimeError / OSError → 503 KernelError)
 and the interrupt failure branches with a fake kernel manager, so no ipykernel
 subprocess is required.
+
+方案三适配：Flask test_client → starlette TestClient（FastAPI app），
+fake kernel 通过替换 ``core.state.app_state.kernel_manager`` 注入（request-time
+读取，语义与 Flask 版 monkeypatch 入口模块一致）。
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
-import app as notebook_app
+from app_fastapi import app
+from core.state import app_state
 
 
 class _FakeKM:
@@ -27,6 +33,16 @@ class _FakeKM:
         # Captured call args so tests can assert the route forwarded them.
         self.last_complete_args = None
         self.last_inspect_args = None
+
+    # FastAPI lifespan 生命周期方法（no-op，避免真实内核启动）
+    def warm_start(self):
+        pass
+
+    def stop_watchdog(self):
+        pass
+
+    def shutdown(self):
+        pass
 
     def execute(self, code):
         self.last_code = code
@@ -75,13 +91,10 @@ class _FakeKM:
 
 @pytest.fixture()
 def client(monkeypatch):
-    """Flask test client wired to a fresh fake kernel manager per test."""
+    """FastAPI test client wired to a fresh fake kernel manager per test."""
     fake = _FakeKM()
-    monkeypatch.setattr(notebook_app, 'kernel_manager', fake)
-    # PROPAGATE_EXCEPTIONS must be False so the registered AppError handler
-    # produces the structured JSON response instead of re-raising.
-    notebook_app.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
-    with notebook_app.app.test_client() as c:
+    monkeypatch.setattr(app_state, 'kernel_manager', fake)
+    with TestClient(app) as c:
         yield c, fake
 
 
@@ -95,7 +108,7 @@ class TestRunCellErrorMapping:
         resp = c.post('/api/run_cell', json={'code': 'x = 1'})
 
         assert resp.status_code == 503
-        data = resp.get_json()
+        data = resp.json()
         assert data['error'] is True
         assert data['error_code'] == 'KERNEL_NOT_READY'
 
@@ -106,7 +119,7 @@ class TestRunCellErrorMapping:
         resp = c.post('/api/run_cell', json={'code': 'x = 1'})
 
         assert resp.status_code == 503
-        data = resp.get_json()
+        data = resp.json()
         assert data['error_code'] == 'KERNEL_IO_ERROR'
 
     def test_happy_path_returns_backward_compatible_shape(self, client):
@@ -116,7 +129,7 @@ class TestRunCellErrorMapping:
         resp = c.post('/api/run_cell', json={'code': "print('hi')"})
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         # Route contract: success/stdout/stderr/html/elapsed_time/plots
         assert set(data.keys()) >= {
             'success', 'stdout', 'stderr', 'html', 'elapsed_time', 'plots'
@@ -132,7 +145,7 @@ class TestInterruptRoute:
         resp = c.post('/api/interrupt_kernel')
 
         assert resp.status_code == 200
-        assert resp.get_json()['success'] is True
+        assert resp.json()['success'] is True
 
     def test_interrupt_failure_when_kernel_alive(self, client):
         c, fake = client
@@ -142,7 +155,7 @@ class TestInterruptRoute:
         resp = c.post('/api/interrupt_kernel')
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data['success'] is False
 
     def test_interrupt_failure_when_kernel_not_alive(self, client):
@@ -153,7 +166,7 @@ class TestInterruptRoute:
         resp = c.post('/api/interrupt_kernel')
 
         assert resp.status_code == 200
-        assert resp.get_json()['success'] is False
+        assert resp.json()['success'] is False
 
 
 class TestKernelStatusRoute:
@@ -164,7 +177,7 @@ class TestKernelStatusRoute:
         resp = c.get('/api/kernel_status')
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data['kernel_alive'] is True
         assert data['watchdog_alive'] is True
         assert data['watchdog_interval_seconds'] == KernelManager.WATCHDOG_INTERVAL
@@ -186,7 +199,7 @@ class TestGetVariablesRoute:
         resp = c.get('/api/get_variables')
 
         assert resp.status_code == 200
-        assert resp.get_json() == [
+        assert resp.json() == [
             {'name': 'x', 'type': 'int', 'repr': '1', 'shape': None}
         ]
 
@@ -210,7 +223,7 @@ class TestCompleteRoute:
         resp = c.post('/api/complete', json={'code': 'pd.Da', 'cursor_pos': 5})
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data['matches'] == ['DataFrame', 'DataFrameGroupBy']
         assert data['cursor_start'] == 3
         assert data['cursor_end'] == 5
@@ -233,7 +246,7 @@ class TestCompleteRoute:
         resp = c.post('/api/complete', json={'code': 'xyz', 'cursor_pos': 3})
 
         assert resp.status_code == 200
-        assert resp.get_json()['matches'] == []
+        assert resp.json()['matches'] == []
 
     def test_rejects_negative_cursor_pos_by_clamping_to_length(self, client):
         c, fake = client
@@ -256,7 +269,7 @@ class TestCompleteRoute:
         resp = c.post('/api/complete', json={})
 
         assert resp.status_code == 200
-        assert resp.get_json()['matches'] == []
+        assert resp.json()['matches'] == []
         assert fake.last_complete_args == ('', 0)
 
 
@@ -285,7 +298,7 @@ class TestInspectRoute:
         })
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data['found'] is True
         assert 'text/plain' in data['data']
         assert fake.last_inspect_args == ('pd.DataFrame', 12, 0)
@@ -297,7 +310,7 @@ class TestInspectRoute:
         resp = c.post('/api/inspect', json={'code': 'x', 'cursor_pos': 1})
 
         assert resp.status_code == 200
-        assert resp.get_json()['found'] is False
+        assert resp.json()['found'] is False
 
     def test_defaults_detail_level_to_zero(self, client):
         c, fake = client
@@ -344,5 +357,5 @@ class TestInspectRoute:
         resp = c.post('/api/inspect', json={})
 
         assert resp.status_code == 200
-        assert resp.get_json()['found'] is False
+        assert resp.json()['found'] is False
         assert fake.last_inspect_args == ('', 0, 0)

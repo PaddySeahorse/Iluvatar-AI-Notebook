@@ -1,31 +1,38 @@
-"""AI proxy routes: default config exposure and upstream LLM calls."""
+"""AI proxy routes: default config exposure and upstream LLM calls (方案三).
+
+与 Flask 版保持相同的 URL 路径与请求/响应格式；流式分支改用
+``StreamingResponse``（SSE），非流式分支通过 ``run_in_threadpool`` 调用阻塞的
+上游 HTTP 请求，避免阻塞事件循环。
+"""
 
 import json
 import os
 
 import requests
-from flask import Blueprint, request, jsonify, Response
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
-from core.errors import UpstreamAPIError
-from core.routes import state
-from core.user_config import save_model_config
 from core import llm as llm_transport
+from core.errors import UpstreamAPIError
+from core.routes import json_body, state
+from core.user_config import save_model_config
 
-bp = Blueprint('ai', __name__)
+router = APIRouter()
 
 
-@bp.route('/api/get_config', methods=['GET'])
-def get_config():
+@router.get('/api/get_config')
+async def get_config(request: Request):
     # Expose defaults loaded from env for initialization
-    s = state()
-    return jsonify({
+    s = state(request)
+    return {
         'default_url': s.DEFAULT_API_URL,
-        'default_model': s.DEFAULT_API_MODEL
-    })
+        'default_model': s.DEFAULT_API_MODEL,
+    }
 
 
-@bp.route('/api/save_config', methods=['POST'])
-def save_config():
+@router.post('/api/save_config')
+async def save_config(request: Request):
     """Persist the user-provided LLM API config on the host machine.
 
     Request: ``{"url": "...", "token": "...", "model": "..."}``
@@ -36,27 +43,33 @@ def save_config():
     ``os.environ`` are updated at the same time so the new config takes
     effect without a restart.
     """
-    s = state()
-    data = request.json or {}
+    s = state(request)
+    data = await json_body(request)
     url = str(data.get('url') or '').strip()
     token = str(data.get('token') or '').strip()
     model = str(data.get('model') or '').strip()
 
     if not url or not model:
-        return jsonify({
-            'error': True,
-            'error_code': 'INVALID_CONFIG',
-            'message': 'API URL 与模型名称不能为空',
-        }), 400
+        return JSONResponse(
+            status_code=400,
+            content={
+                'error': True,
+                'error_code': 'INVALID_CONFIG',
+                'message': 'API URL 与模型名称不能为空',
+            },
+        )
 
     try:
-        save_model_config(url, token, model)
+        await run_in_threadpool(save_model_config, url, token, model)
     except OSError as e:
-        return jsonify({
-            'error': True,
-            'error_code': 'CONFIG_WRITE_ERROR',
-            'message': f'写入配置文件失败: {e}',
-        }), 500
+        return JSONResponse(
+            status_code=500,
+            content={
+                'error': True,
+                'error_code': 'CONFIG_WRITE_ERROR',
+                'message': f'写入配置文件失败: {e}',
+            },
+        )
 
     # Make the config effective immediately (no restart needed).
     s.DEFAULT_API_URL = url
@@ -66,20 +79,18 @@ def save_config():
     os.environ['OPENI_API_TOKEN'] = token
     os.environ['OPENI_API_MODEL'] = model
 
-    return jsonify({'ok': True, 'message': 'API 配置已保存'})
+    return {'ok': True, 'message': 'API 配置已保存'}
 
 
-@bp.route('/api/ai_call', methods=['POST'])
-def ai_call():
-    s = state()
-    data = request.json or {}
+@router.post('/api/ai_call')
+async def ai_call(request: Request):
+    s = state(request)
+    data = await json_body(request)
     url = data.get('url') or s.DEFAULT_API_URL
     token = data.get('token') or s.DEFAULT_API_TOKEN
     model = data.get('model') or s.DEFAULT_API_MODEL
     messages = data.get('messages', [])
     stream = data.get('stream', False)
-    temperature = data.get('temperature', 0.7)
-    max_tokens = data.get('max_tokens')
     backend = data.get('backend')
 
     try:
@@ -94,21 +105,21 @@ def ai_call():
                     yield 'data: [DONE]\n\n'
                 except llm_transport.LLMError as e:
                     yield 'data: ' + json.dumps({"error": True, "message": str(e)}, ensure_ascii=False) + '\n\n'
-            return Response(generate(), mimetype='text/event-stream', headers={
-                'Cache-Control': 'no-cache',
-                'X-Accel-Buffering': 'no',
-            })
-        payload = {
-            'model': model,
-            'messages': messages,
-            'temperature': temperature,
-        }
-        if max_tokens is not None:
-            payload['max_tokens'] = max_tokens
-        result = llm_transport.chat_nostream(
+
+            return StreamingResponse(
+                generate(),
+                media_type='text/event-stream',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'X-Accel-Buffering': 'no',
+                },
+            )
+
+        result = await run_in_threadpool(
+            llm_transport.chat_nostream,
             url, token, model, messages, backend=backend,
         )
-        return jsonify(result)
+        return result
     except llm_transport.LLMError as e:
         raise UpstreamAPIError(
             f"Upstream API error: {e}", error_code='UPSTREAM_API_ERROR',
@@ -128,16 +139,4 @@ def ai_call():
         raise UpstreamAPIError(
             f'Unexpected error communicating with API server: {e}',
             error_code='UPSTREAM_REQUEST_ERROR', status_code=502,
-        ) from e
-    except requests.exceptions.Timeout as e:
-        raise UpstreamAPIError(
-            f"Request to '{url}' timed out after 45 seconds.",
-            error_code='UPSTREAM_TIMEOUT',
-            status_code=504,
-        ) from e
-    except requests.exceptions.RequestException as e:
-        raise UpstreamAPIError(
-            f"Unexpected error communicating with API server: {e}",
-            error_code='UPSTREAM_REQUEST_ERROR',
-            status_code=502,
         ) from e

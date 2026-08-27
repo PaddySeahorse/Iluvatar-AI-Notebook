@@ -1,37 +1,36 @@
-"""Notebook (.ipynb) file management routes."""
+"""Notebook (.ipynb) file management routes (方案三：FastAPI 版).
 
-import os
+与 Flask 版保持完全相同的 URL 与响应格式。版本检查通过
+:func:`core.routes.state` 读取 request-time 状态，``WORKSPACE_DIR`` /
+``is_safe_path`` 迁移后可被测试 monkeypatch。
+"""
+
 import json
+import os
 
-from flask import Blueprint, request, jsonify
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from core.errors import FileStorageError
-from core.routes import state
+from core.routes import json_body, state
 
-bp = Blueprint('files', __name__)
-
-
-def _workspace_dir():
-    return state().WORKSPACE_DIR
+router = APIRouter()
 
 
-def _is_safe_path(path):
-    return state().is_safe_path(path)
+def _state(request: Request):
+    return state(request)
 
 
-@bp.route('/api/files/list', methods=['GET'])
-def list_files():
-    workspace = _workspace_dir()
+@router.get('/api/files/list')
+async def list_files(request: Request):
+    workspace = _state(request).WORKSPACE_DIR
     try:
         files = []
         for f in os.listdir(workspace):
             if f.endswith('.ipynb') and os.path.isfile(os.path.join(workspace, f)):
                 files.append(f)
         files.sort()
-        return jsonify({
-            'success': True,
-            'files': files
-        })
+        return {'success': True, 'files': files}
     except PermissionError as e:
         raise FileStorageError(
             f"Permission denied reading workspace directory: {e}",
@@ -45,27 +44,25 @@ def list_files():
         ) from e
 
 
-@bp.route('/api/files/read', methods=['GET'])
-def read_file():
-    workspace = _workspace_dir()
-    filename = request.args.get('filename', '')
+@router.get('/api/files/read')
+async def read_file(request: Request):
+    s = _state(request)
+    workspace = s.WORKSPACE_DIR
+    filename = request.query_params.get('filename', '')
     if not filename:
-        return jsonify({'success': False, 'message': 'Missing filename'}), 400
+        return JSONResponse({'success': False, 'message': 'Missing filename'}, status_code=400)
 
-    if not filename.endswith('.ipynb') or not _is_safe_path(filename):
-        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
+    if not filename.endswith('.ipynb') or not s.is_safe_path(filename):
+        return JSONResponse({'success': False, 'message': 'Invalid filename'}, status_code=400)
 
     filepath = os.path.join(workspace, filename)
     if not os.path.exists(filepath):
-        return jsonify({'success': False, 'message': 'File not found'}), 404
+        return JSONResponse({'success': False, 'message': 'File not found'}, status_code=404)
 
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = json.load(f)
-        return jsonify({
-            'success': True,
-            'content': content
-        })
+        return {'success': True, 'content': content}
     except PermissionError as e:
         raise FileStorageError(
             f"Permission denied reading '{filename}': {e}",
@@ -85,27 +82,28 @@ def read_file():
         ) from e
 
 
-@bp.route('/api/files/save', methods=['POST'])
-def save_file():
-    workspace = _workspace_dir()
-    data = request.json or {}
+@router.post('/api/files/save')
+async def save_file(request: Request):
+    s = _state(request)
+    workspace = s.WORKSPACE_DIR
+    data = await json_body(request)
     filename = data.get('filename', '')
     content = data.get('content')
 
     if not filename or content is None:
-        return jsonify({'success': False, 'message': 'Missing filename or content'}), 400
+        return JSONResponse(
+            {'success': False, 'message': 'Missing filename or content'},
+            status_code=400,
+        )
 
-    if not filename.endswith('.ipynb') or not _is_safe_path(filename):
-        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
+    if not filename.endswith('.ipynb') or not s.is_safe_path(filename):
+        return JSONResponse({'success': False, 'message': 'Invalid filename'}, status_code=400)
 
     filepath = os.path.join(workspace, filename)
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(content, f, indent=2, ensure_ascii=False)
-        return jsonify({
-            'success': True,
-            'message': 'Saved successfully'
-        })
+        return {'success': True, 'message': 'Saved successfully'}
     except PermissionError as e:
         raise FileStorageError(
             f"Permission denied writing '{filename}': {e}",
@@ -125,9 +123,9 @@ def save_file():
         ) from e
 
 
-@bp.route('/api/files/create', methods=['POST'])
-def create_file():
-    workspace = _workspace_dir()
+@router.post('/api/files/create')
+async def create_file(request: Request):
+    workspace = _state(request).WORKSPACE_DIR
     base_name = 'Untitled'
     ext = '.ipynb'
     filename = f"{base_name}{ext}"
@@ -144,23 +142,20 @@ def create_file():
             "kernelspec": {
                 "display_name": "Python 3 (天数智芯 BI-150)",
                 "language": "python",
-                "name": "python3"
+                "name": "python3",
             },
             "language_info": {
-                "name": "python"
-            }
+                "name": "python",
+            },
         },
         "nbformat": 4,
-        "nbformat_minor": 2
+        "nbformat_minor": 2,
     }
 
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(default_notebook, f, indent=2, ensure_ascii=False)
-        return jsonify({
-            'success': True,
-            'filename': filename
-        })
+        return {'success': True, 'filename': filename}
     except PermissionError as e:
         raise FileStorageError(
             f"Permission denied creating notebook '{filename}': {e}",
@@ -174,37 +169,35 @@ def create_file():
         ) from e
 
 
-@bp.route('/api/files/rename', methods=['POST'])
-def rename_file():
-    workspace = _workspace_dir()
-    data = request.json or {}
+@router.post('/api/files/rename')
+async def rename_file(request: Request):
+    s = _state(request)
+    workspace = s.WORKSPACE_DIR
+    data = await json_body(request)
     old_name = data.get('old_name', '')
     new_name = data.get('new_name', '')
 
     if not old_name or not new_name:
-        return jsonify({'success': False, 'message': 'Missing filenames'}), 400
+        return JSONResponse({'success': False, 'message': 'Missing filenames'}, status_code=400)
 
     if not old_name.endswith('.ipynb') or not new_name.endswith('.ipynb'):
-        return jsonify({'success': False, 'message': 'Invalid filename format'}), 400
+        return JSONResponse({'success': False, 'message': 'Invalid filename format'}, status_code=400)
 
-    if not _is_safe_path(old_name) or not _is_safe_path(new_name):
-        return jsonify({'success': False, 'message': 'Path traversal detected'}), 400
+    if not s.is_safe_path(old_name) or not s.is_safe_path(new_name):
+        return JSONResponse({'success': False, 'message': 'Path traversal detected'}, status_code=400)
 
     old_path = os.path.join(workspace, old_name)
     new_path = os.path.join(workspace, new_name)
 
     if not os.path.exists(old_path):
-        return jsonify({'success': False, 'message': 'Source file not found'}), 404
+        return JSONResponse({'success': False, 'message': 'Source file not found'}, status_code=404)
 
     if os.path.exists(new_path):
-        return jsonify({'success': False, 'message': 'Target file already exists'}), 400
+        return JSONResponse({'success': False, 'message': 'Target file already exists'}, status_code=400)
 
     try:
         os.rename(old_path, new_path)
-        return jsonify({
-            'success': True,
-            'message': 'Renamed successfully'
-        })
+        return {'success': True, 'message': 'Renamed successfully'}
     except PermissionError as e:
         raise FileStorageError(
             f"Permission denied renaming '{old_name}': {e}",
@@ -218,28 +211,26 @@ def rename_file():
         ) from e
 
 
-@bp.route('/api/files/delete', methods=['POST'])
-def delete_file_api():
-    workspace = _workspace_dir()
-    data = request.json or {}
+@router.post('/api/files/delete')
+async def delete_file_api(request: Request):
+    s = _state(request)
+    workspace = s.WORKSPACE_DIR
+    data = await json_body(request)
     filename = data.get('filename', '')
 
     if not filename:
-        return jsonify({'success': False, 'message': 'Missing filename'}), 400
+        return JSONResponse({'success': False, 'message': 'Missing filename'}, status_code=400)
 
-    if not filename.endswith('.ipynb') or not _is_safe_path(filename):
-        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
+    if not filename.endswith('.ipynb') or not s.is_safe_path(filename):
+        return JSONResponse({'success': False, 'message': 'Invalid filename'}, status_code=400)
 
     filepath = os.path.join(workspace, filename)
     if not os.path.exists(filepath):
-        return jsonify({'success': False, 'message': 'File not found'}), 404
+        return JSONResponse({'success': False, 'message': 'File not found'}, status_code=404)
 
     try:
         os.remove(filepath)
-        return jsonify({
-            'success': True,
-            'message': 'Deleted successfully'
-        })
+        return {'success': True, 'message': 'Deleted successfully'}
     except PermissionError as e:
         raise FileStorageError(
             f"Permission denied deleting '{filename}': {e}",

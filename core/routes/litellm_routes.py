@@ -1,25 +1,32 @@
-"""Reverse proxy for the local LiteLLM Proxy (WebUI + admin API).
+"""Reverse proxy for the local LiteLLM Proxy (WebUI + admin API, 方案三).
 
-Only the Flask port (``OPENI_SELF_PORT``) is reachable from outside networks,
+Only the served port (``OPENI_SELF_PORT``) is reachable from outside networks,
 so the LiteLLM Proxy's native WebUI cannot be embedded directly: the browser
-would try to reach ``localhost:4000`` and fail.  This blueprint forwards a
+would try to reach ``localhost:4000`` and fail.  This router forwards a
 whitelisted set of LiteLLM-owned path prefixes — the WebUI assets
 (``/ui``, ``/litellm-asset-prefix``), its login/favicon endpoints and the
 admin API namespaces the WebUI calls (``/key``, ``/user``, ``/team`` ...).
 
 The prefixes are all LiteLLM-specific namespaces and never collide with the
-notebook's own routes (``/``, ``/api/*``).  Requests are streamed through so
+notebook's own routes (``/``, ``/api/*``). Requests are streamed through so
 SSE and large JS chunks work, with hop-by-hop headers filtered.
+
+迁移说明：Flask（同步 requests）→ FastAPI（异步 httpx）。此 router 独占
+``/{subpath:path}`` catch-all，因此必须在其它 router 之后注册（见
+:func:`core.routes.register_routers`），否则会挡住所有未匹配的路径。
 """
 
 import logging
 
-import requests
-from flask import Blueprint, Response, request
+import httpx
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from core.errors import AppError
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint('litellm_proxy', __name__)
+router = APIRouter()
 
 LITELLM_UPSTREAM = 'http://localhost:4000'
 
@@ -62,43 +69,54 @@ def is_litellm_path(path: str) -> bool:
     return False
 
 
-def _forward(path: str) -> Response:
+async def _forward(path: str, request: Request) -> StreamingResponse:
     """Stream a request through to the local LiteLLM Proxy."""
-    url = LITELLM_UPSTREAM + request.full_path.rstrip('?') if request.full_path else LITELLM_UPSTREAM + path
+    query = request.url.query
+    upstream_url = LITELLM_UPSTREAM + '/' + path + (f'?{query}' if query else '')
 
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP}
-    body = request.get_data()
+    body = await request.body()
 
     try:
-        upstream = requests.request(
-            method=request.method,
-            url=url,
-            headers=headers,
-            data=body,
-            stream=True,
-            timeout=120,
-            allow_redirects=False,
-        )
-    except requests.exceptions.RequestException as e:
-        logger.warning('litellm_proxy_upstream_error', extra={'path': path, 'error': str(e)})
-        return Response(
-            '{"error": true, "message": "LiteLLM Proxy 不可达: %s"}' % e.__class__.__name__,
-            status=502, mimetype='application/json',
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0), follow_redirects=False,
+        ) as client:
+            upstream = await client.request(
+                request.method,
+                upstream_url,
+                headers=headers,
+                content=body,
+            )
+    except httpx.RequestError as e:
+        logger.warning('litellm_proxy_upstream_error', extra={'path': '/' + path, 'error': str(e)})
+        return JSONResponse(
+            {'error': True, 'message': f'LiteLLM Proxy 不可达: {e.__class__.__name__}'},
+            status_code=502,
         )
 
-    out_headers = [(k, v) for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP]
-    return Response(
-        upstream.iter_content(chunk_size=64 * 1024),
-        status=upstream.status_code,
+    out_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP}
+
+    async def body_stream():
+        try:
+            async for chunk in upstream.aiter_bytes(chunk_size=64 * 1024):
+                yield chunk
+        finally:
+            await upstream.aclose()
+
+    return StreamingResponse(
+        body_stream(),
+        status_code=upstream.status_code,
         headers=out_headers,
     )
 
 
-@bp.route('/<path:subpath>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
-def proxy_any(subpath):
+@router.api_route(
+    '/{subpath:path}',
+    methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    include_in_schema=False,
+)
+async def proxy_any(subpath: str, request: Request):
     """Forward any whitelisted LiteLLM path; 404 for everything else."""
     if not is_litellm_path('/' + subpath):
-        from core.errors import AppError
-
         raise AppError('未知路径: /%s' % subpath, status_code=404)
-    return _forward('/' + subpath)
+    return await _forward(subpath, request)

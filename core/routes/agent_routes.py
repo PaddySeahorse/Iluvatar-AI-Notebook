@@ -1,32 +1,38 @@
-"""ReAct agent + structured context routes.
+"""ReAct agent + structured context routes (方案三：FastAPI 版).
 
 - ``GET /api/context``  -> structured kernel context (variables + recent Out
   results + recent error summaries) used to build smart prompts.
 - ``POST /api/agent_call`` -> SSE stream of agent events (tool calls/results
   and the final answer).
+
+``agent_loop`` 是同步 generator（内部含阻塞的 LLM / 内核调用），交给
+``StreamingResponse`` 后由 Starlette 在线程池中迭代，保持事件循环不被卡住。
+共享状态经 :func:`core.routes.state` 在请求时读取，与 Flask 版行为一致。
 """
 
 import json
 
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from core.agent import agent_loop
 from core.context import build_context
-from core.routes import state
+from core.routes import json_body, state
 
-bp = Blueprint('agent', __name__)
+router = APIRouter()
 
 
-@bp.route('/api/context', methods=['GET'])
-def get_context():
+@router.get('/api/context')
+async def get_context(request: Request):
     """Return the structured context snapshot of the live kernel."""
-    s = state()
-    ctx = build_context(s.kernel_manager, s.WORKSPACE_DIR)
-    return jsonify(ctx)
+    s = state(request)
+    ctx = await run_in_threadpool(build_context, s.kernel_manager, s.WORKSPACE_DIR)
+    return ctx
 
 
-@bp.route('/api/agent_call', methods=['POST'])
-def agent_call():
+@router.post('/api/agent_call')
+async def agent_call(request: Request):
     """Run the ReAct agent and stream its events via Server-Sent Events.
 
     Request body mirrors ``/api/ai_call`` plus agent-specific fields::
@@ -47,8 +53,8 @@ def agent_call():
         data: {"type":"done","final":"..."}
         data: [DONE]
     """
-    data = request.json or {}
-    s = state()
+    s = state(request)
+    data = await json_body(request)
     url = data.get('url') or s.DEFAULT_API_URL
     token = data.get('token') or s.DEFAULT_API_TOKEN
     model = data.get('model') or s.DEFAULT_API_MODEL
@@ -60,7 +66,10 @@ def agent_call():
     backend = data.get('backend') or None
 
     if not query.strip():
-        return jsonify({'error': True, 'error_code': 'EMPTY_QUERY', 'message': 'Empty query'}), 400
+        return JSONResponse(
+            status_code=400,
+            content={'error': True, 'error_code': 'EMPTY_QUERY', 'message': 'Empty query'},
+        )
 
     def generate():
         for event in agent_loop(
@@ -78,9 +87,9 @@ def agent_call():
             yield f'data: {json.dumps(event, ensure_ascii=False)}\n\n'
         yield 'data: [DONE]\n\n'
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
+    return StreamingResponse(
+        generate(),
+        media_type='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',
