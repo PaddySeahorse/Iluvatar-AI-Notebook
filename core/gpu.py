@@ -47,6 +47,7 @@ def get_real_gpu_state():
             status = 'Idle'
 
         return {
+            'gpu_available': True,
             'name': 'Iluvatar MR-V100',
             'vram_total': vram_total,
             'vram_used': vram_used,
@@ -59,13 +60,14 @@ def get_real_gpu_state():
         }
     except Exception as e:
         return {
-            'name': 'Iluvatar MR-V100',
-            'vram_total': 32768,
+            'gpu_available': False,
+            'name': None,
+            'vram_total': 0,
             'vram_used': 0,
             'utilization': 0.0,
             'temperature': 0.0,
             'power_draw': 0.0,
             'core_clock': 0,
             'memory_clock': 0,
-            'status': f'Error: {str(e)}'
+            'status': 'No GPU detected'
         }

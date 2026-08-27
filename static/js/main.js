@@ -1028,45 +1028,67 @@ function setKernelStatus(statusClass, text) {
 }
 
 // Real-time GPU Telemetry updates
+let gpuTelemetryInterval = null;
+
 function startGpuTelemetry() {
-    setInterval(() => {
-        fetchGpuStatus()
-            .then(data => {
-                // Update Top mini dashboard
-                const utilBar = document.getElementById('gpuUtilBar');
-                const utilVal = document.getElementById('gpuUtilVal');
-                const vramBar = document.getElementById('gpuVramBar');
-                const vramVal = document.getElementById('gpuVramVal');
-                const powerVal = document.getElementById('gpuPowerVal');
-                const tempVal = document.getElementById('gpuTempVal');
+    // First fetch to check if GPU is available
+    fetchGpuStatus()
+        .then(data => {
+            if (!data.gpu_available) {
+                // No GPU detected, keep dashboard and modal hidden
+                return;
+            }
 
-                if (utilBar) utilBar.style.width = `${data.utilization}%`;
-                if (utilVal) utilVal.innerText = `${data.utilization}%`;
-                
-                const vramPercent = (data.vram_used / data.vram_total) * 100;
-                if (vramBar) vramBar.style.width = `${vramPercent}%`;
-                if (vramVal) vramVal.innerText = `${data.vram_used}MB / ${Math.round(data.vram_total / 1024)}GB`;
-                
-                if (powerVal) powerVal.innerText = `${data.power_draw} W`;
-                if (tempVal) tempVal.innerText = `${data.temperature}°C`;
+            // GPU available, show dashboard and start periodic updates
+            const gpuDashboard = document.getElementById('gpuDashboard');
+            if (gpuDashboard) gpuDashboard.style.display = '';
+            
+            updateGpuDisplay(data);
+            
+            gpuTelemetryInterval = setInterval(() => {
+                fetchGpuStatus()
+                    .then(updateGpuDisplay)
+                    .catch(err => console.error("GPU Telemetry fetch failed:", err));
+            }, 1500);
+        })
+        .catch(err => {
+            console.error("GPU Telemetry fetch failed:", err);
+        });
+}
 
-                // If Details Modal is open, update modal fields
-                if (state.isGpuModalOpen) {
-                    const modalTemp = document.getElementById('gpuModalTemp');
-                    const modalPower = document.getElementById('gpuModalPower');
-                    const modalStatus = document.getElementById('gpuModalStatus');
-                    const modalVramUsed = document.getElementById('gpuModalVramUsed');
-                    const modalVramBar = document.getElementById('gpuModalVramBar');
+function updateGpuDisplay(data) {
+    // Update Top mini dashboard
+    const utilBar = document.getElementById('gpuUtilBar');
+    const utilVal = document.getElementById('gpuUtilVal');
+    const vramBar = document.getElementById('gpuVramBar');
+    const vramVal = document.getElementById('gpuVramVal');
+    const powerVal = document.getElementById('gpuPowerVal');
+    const tempVal = document.getElementById('gpuTempVal');
 
-                    if (modalTemp) modalTemp.innerText = `${data.temperature}°C`;
-                    if (modalPower) modalPower.innerText = `${data.power_draw} W`;
-                    if (modalStatus) modalStatus.innerText = data.status;
-                    if (modalVramUsed) modalVramUsed.innerText = `${data.vram_used} MB`;
-                    if (modalVramBar) modalVramBar.style.width = `${vramPercent}%`;
-                }
-            })
-            .catch(err => console.error("GPU Telemetry fetch failed:", err));
-    }, 1500);
+    if (utilBar) utilBar.style.width = `${data.utilization}%`;
+    if (utilVal) utilVal.innerText = `${data.utilization}%`;
+    
+    const vramPercent = data.vram_total > 0 ? (data.vram_used / data.vram_total) * 100 : 0;
+    if (vramBar) vramBar.style.width = `${vramPercent}%`;
+    if (vramVal) vramVal.innerText = `${data.vram_used}MB / ${Math.round(data.vram_total / 1024)}GB`;
+    
+    if (powerVal) powerVal.innerText = `${data.power_draw} W`;
+    if (tempVal) tempVal.innerText = `${data.temperature}°C`;
+
+    // If Details Modal is open, update modal fields
+    if (state.isGpuModalOpen) {
+        const modalTemp = document.getElementById('gpuModalTemp');
+        const modalPower = document.getElementById('gpuModalPower');
+        const modalStatus = document.getElementById('gpuModalStatus');
+        const modalVramUsed = document.getElementById('gpuModalVramUsed');
+        const modalVramBar = document.getElementById('gpuModalVramBar');
+
+        if (modalTemp) modalTemp.innerText = `${data.temperature}°C`;
+        if (modalPower) modalPower.innerText = `${data.power_draw} W`;
+        if (modalStatus) modalStatus.innerText = data.status;
+        if (modalVramUsed) modalVramUsed.innerText = `${data.vram_used} MB`;
+        if (modalVramBar) modalVramBar.style.width = `${vramPercent}%`;
+    }
 }
 
 // AI Copilot Code generation inside cell
