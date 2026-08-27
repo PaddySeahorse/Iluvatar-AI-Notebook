@@ -5,6 +5,8 @@ real kernel is needed. Both protocols (function calling and the text-JSON
 fallback) and the step-cap guard are covered.
 """
 
+import time
+
 import pytest
 
 from core import agent as agent_module
@@ -38,6 +40,18 @@ class _FakeKM:
 
     def is_watchdog_alive(self):
         return True
+
+
+class _SlowKM(_FakeKM):
+    """Kernel manager whose execute() blocks for a configurable duration."""
+
+    def __init__(self, sleep_seconds=10):
+        super().__init__()
+        self._sleep = sleep_seconds
+
+    def execute(self, code):
+        time.sleep(self._sleep)
+        return super().execute(code)
 
 
 class _State:
@@ -195,3 +209,53 @@ def test_system_prompt_includes_structured_context(monkeypatch):
     assert 'x (int)' in sys_prompt
     assert 'Out 1] x = 1' in sys_prompt
     assert 'NameError: foo' in sys_prompt
+
+
+def test_tool_timeout_yields_error_and_continues(monkeypatch):
+    """Tool timeout returns a tool_result with ok=False; agent keeps going."""
+    reply_tool = {
+        'content': '',
+        'tool_calls': [
+            {'id': 'call_1', 'type': 'function', 'function': {'name': 'run_cell', 'arguments': '{"code": "time.sleep(999)"}'}}
+        ],
+    }
+    reply_final = {'content': '工具超时了，我来直接回答', 'tool_calls': None}
+
+    call_idx = [0]
+    replies = [reply_tool, reply_final]
+
+    def fake_nostream(url, token, model, messages, tools, timeout=60, backend=None):
+        idx = call_idx[0]
+        call_idx[0] += 1
+        return replies[idx]
+
+    def fake_stream(url, token, model, messages, timeout=180, backend=None):
+        yield '工具超时了，我来直接回答'
+
+    monkeypatch.setattr(agent_module, 'probe_tool_support', lambda *a, **k: True)
+    monkeypatch.setattr(agent_module, '_chat_nostream', fake_nostream)
+    monkeypatch.setattr(agent_module, '_chat_stream', fake_stream)
+    monkeypatch.setattr(agent_module, 'TOOL_TIMEOUT', 0.5)
+
+    slow_state = _state()
+    slow_state.kernel_manager = _SlowKM(sleep_seconds=10)
+
+    events = list(agent_loop(
+        url='http://x/v1/chat/completions',
+        token='t',
+        model='m',
+        history=[],
+        query='帮我执行一段很慢的代码',
+        include_context=False,
+        state_module=slow_state,
+        max_steps=6,
+        use_tools_probe=True,
+    ))
+
+    types = [e['type'] for e in events]
+    assert 'tool_call' in types
+    tool_result = [e for e in events if e['type'] == 'tool_result'][0]
+    assert tool_result['ok'] is False
+    assert 'timed out' in tool_result['summary']
+    assert types[-1] == 'done'
+    assert events[-1]['final'] != ''

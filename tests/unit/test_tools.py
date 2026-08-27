@@ -1,6 +1,7 @@
 """Unit tests for the agent tool registry (core/tools.py)."""
 
 import json
+import time
 
 import core.tools as tools
 from core.utils import is_safe_path
@@ -141,3 +142,38 @@ def test_execute_unknown_tool(tmp_path):
     result = tools.execute_tool('does_not_exist', {}, ctx)
     assert result['ok'] is False
     assert 'unknown tool' in result['summary']
+
+
+class _SlowKM(_FakeKM):
+    """Kernel manager whose execute() blocks for a configurable duration."""
+
+    def __init__(self, sleep_seconds=10):
+        super().__init__()
+        self._sleep = sleep_seconds
+
+    def execute(self, code):
+        time.sleep(self._sleep)
+        return super().execute(code)
+
+
+def test_execute_run_cell_timeout(tmp_path):
+    ctx = {
+        'kernel_manager': _SlowKM(sleep_seconds=10),
+        'workspace_dir': str(tmp_path),
+        'is_safe_path': lambda p: is_safe_path(str(tmp_path), p),
+    }
+    result = tools.execute_tool('run_cell', {'code': 'import time; time.sleep(10)'}, ctx, timeout=0.5)
+    assert result['ok'] is False
+    assert 'timed out' in result['summary']
+    assert '0s' in result['summary'] or '1s' in result['summary']
+
+
+def test_execute_run_cell_no_timeout_when_fast(tmp_path):
+    ctx = {
+        'kernel_manager': _SlowKM(sleep_seconds=0),
+        'workspace_dir': str(tmp_path),
+        'is_safe_path': lambda p: is_safe_path(str(tmp_path), p),
+    }
+    result = tools.execute_tool('run_cell', {'code': 'print(1)'}, ctx, timeout=5)
+    assert result['ok'] is True
+    assert '42' in result['summary']

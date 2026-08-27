@@ -10,10 +10,24 @@ loop translates failures into an observation it can reason about.
 
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 
 _MAX_RESULT_CHARS = 2000
 _MAX_READ_CHARS = 6000
+
+# Module-level executor so the context manager exit doesn't block waiting for
+# threads that are still running after a timeout.
+_tool_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='tool-exec')
+
+
+def _shutdown_executor():
+    _tool_executor.shutdown(wait=False)
+
+
+import atexit
+atexit.register(_shutdown_executor)
 
 
 def _clip(text: str, limit: int = _MAX_RESULT_CHARS) -> str:
@@ -218,11 +232,15 @@ def get_tool_schemas() -> list:
     ]
 
 
-def execute_tool(name: str, arguments, ctx) -> dict:
+def execute_tool(name: str, arguments, ctx, *, timeout: float = 30) -> dict:
     """Execute a tool by name with parsed JSON arguments.
 
     Returns a normalized result dict with at least ``ok`` and ``summary``
     keys plus an optional ``data`` payload.
+
+    ``timeout`` is the maximum wall-clock seconds the tool is allowed to run.
+    On timeout the result is an error the agent can reason about and decide
+    whether to retry or move on.
     """
     tool = TOOL_DEFS.get(name)
     if tool is None:
@@ -234,8 +252,16 @@ def execute_tool(name: str, arguments, ctx) -> dict:
             arguments = {'_raw': arguments}
     if not isinstance(arguments, dict):
         arguments = {'_raw': str(arguments)}
+    future = _tool_executor.submit(tool['func'], arguments, ctx)
     try:
-        result = tool['func'](arguments, ctx)
+        result = future.result(timeout=timeout)
+    except FuturesTimeout:
+        future.cancel()
+        return {
+            'ok': False,
+            'summary': f"tool {name} timed out after {int(timeout)}s",
+            'data': {},
+        }
     except Exception as e:
         result = {'ok': False, 'summary': f"tool {name} raised: {e}", 'data': {}}
     result.setdefault('ok', False)

@@ -41,6 +41,7 @@ from core.tools import TOOL_DEFS, execute_tool, get_tool_schemas
 MAX_STEPS = 6
 REQUESTS_TIMEOUT = 60
 STREAM_TIMEOUT = 180
+TOOL_TIMEOUT = 30
 
 TOOL_LABELS = {
     'run_cell': '执行代码单元',
@@ -263,7 +264,7 @@ def agent_loop(
                     'label': TOOL_LABELS.get(name, name),
                     'arguments': arguments,
                 }
-                result = execute_tool(name, arguments, tool_context)
+                result = execute_tool(name, arguments, tool_context, timeout=TOOL_TIMEOUT)
                 yield {
                     'type': 'tool_result',
                     'name': name,
@@ -290,7 +291,7 @@ def agent_loop(
                 'label': TOOL_LABELS.get(name, name),
                 'arguments': arguments,
             }
-            result = execute_tool(name, arguments, tool_context)
+            result = execute_tool(name, arguments, tool_context, timeout=TOOL_TIMEOUT)
             yield {
                 'type': 'tool_result',
                 'name': name,
