@@ -18,11 +18,23 @@ export class TerminalPanel {
     this._renderShell();
     this._bindEvents();
     this._applyState();
+    this._preloadXterm();
     this._restoreSessions();
     window.addEventListener("resize", () => {
       const inst = this.instances.get(this.store.activeTerminalId);
       if (inst) inst.fit();
     });
+  }
+
+  _preloadXterm() {
+    import("./terminal-instance.js").then((m) => {
+      m.TerminalInstance._loadXterm().catch(() => {});
+      m.TerminalInstance._loadFitAddon().catch(() => {});
+    }).catch(() => {});
+  }
+
+  _nextFrame() {
+    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   }
 
   _renderShell() {
@@ -95,9 +107,9 @@ export class TerminalPanel {
       if (!this.store.activeTerminalId || !list.find(t => t.id === this.store.activeTerminalId)) {
         this.store.activeTerminalId = list[0].id;
       }
-      for (const t of list) {
-        await this._ensureInstance(t);
-      }
+      this._showEmpty(false);
+      await this._nextFrame();
+      await Promise.all(list.map((t) => this._ensureInstance(t)));
       this._renderTabs();
       this._switchTo(this.store.activeTerminalId);
       saveStore(this.store);
@@ -126,6 +138,15 @@ export class TerminalPanel {
       inst.status = "exited";
     }
     return inst;
+  }
+
+  _setCreating(v) {
+    const btn = this.root.querySelector("#termNewBtn");
+    const emptyBtn = this.root.querySelector("#termEmptyNewBtn");
+    if (btn) btn.disabled = v;
+    if (emptyBtn) emptyBtn.disabled = v;
+    if (btn) btn.style.opacity = v ? "0.5" : "";
+    if (emptyBtn) emptyBtn.style.opacity = v ? "0.5" : "";
   }
 
   _onInstanceStatus(id, status, exitCode) {
@@ -205,11 +226,12 @@ export class TerminalPanel {
     if (this.store.panelHeight < 100) this.store.panelHeight = this.store.previousPanelHeight || 260;
     this._applyState();
     saveStore(this.store);
+    await this._nextFrame();
     if (this.store.terminals.length === 0) {
       await this.createNew();
     } else {
       const inst = this.instances.get(this.store.activeTerminalId);
-      if (inst) setTimeout(() => inst.fit(), 100);
+      if (inst) { inst.fit(); setTimeout(() => inst.fit(), 80); }
     }
   }
 
@@ -241,37 +263,41 @@ export class TerminalPanel {
   }
 
   async createNew() {
+    if (this._creating) return;
+    this._creating = true;
+    this._setCreating(true);
     if (!this.store.panelOpen) {
       this.store.panelOpen = true;
       this._applyState();
+      await this._nextFrame();
     }
+    this._showEmpty(false);
+    await this._nextFrame();
     const instTmp = this.instances.get(this.store.activeTerminalId);
     let cols = 80, rows = 24;
     if (instTmp) { cols = instTmp.cols; rows = instTmp.rows; }
-    else {
-      try {
-        const c = this.hostEl.getBoundingClientRect();
-        cols = Math.max(40, Math.floor(c.width / 9));
-        rows = Math.max(10, Math.floor(this.store.panelHeight / 17));
-      } catch {}
-    }
     try {
       const meta = await createTerminal({ profile: "bash", cols, rows });
       this.store.terminals.push(meta);
+      this._renderTabs();
       await this._ensureInstance(meta);
       this._switchTo(meta.id);
       this._renderTabs();
       saveStore(this.store);
+      const ni = this.instances.get(meta.id);
+      if (ni) { ni.fit(); setTimeout(() => ni.fit(), 80); }
     } catch (e) {
       if (String(e.message).includes("429") || String(e.message).toLowerCase().includes("max terminals")) {
         const msg = "Terminal limit reached (10). Close a terminal first.";
         if (window.showFloatingNotification) window.showFloatingNotification(msg);
         else alert(msg);
+        this._showEmpty(this.store.terminals.length === 0);
         return;
       }
       try {
         const m = await createTerminal({ profile: "sh", cols, rows });
         this.store.terminals.push(m);
+        this._renderTabs();
         await this._ensureInstance(m);
         this._switchTo(m.id);
         this._renderTabs();
@@ -286,7 +312,11 @@ export class TerminalPanel {
         setTimeout(() => { try { div.remove(); } catch {} }, 4000);
         if (window.showFloatingNotification) window.showFloatingNotification(msg);
         console.error(msg, err || e);
+        this._showEmpty(this.store.terminals.length === 0);
       }
+    } finally {
+      this._creating = false;
+      this._setCreating(false);
     }
   }
 

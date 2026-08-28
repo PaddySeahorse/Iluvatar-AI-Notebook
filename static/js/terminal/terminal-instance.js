@@ -19,8 +19,7 @@ export class TerminalInstance {
 
   async init(onStatus) {
     this._onStatusChange = onStatus;
-    const Terminal = await TerminalInstance._loadXterm();
-    const FitAddon = await TerminalInstance._loadFitAddon();
+    const [Terminal, FitAddon] = await Promise.all([TerminalInstance._loadXterm(), TerminalInstance._loadFitAddon()]);
     this.terminal = new Terminal({
       fontFamily: "Fira Code, monospace",
       fontSize: 13,
@@ -36,8 +35,9 @@ export class TerminalInstance {
     });
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
+    await this._waitVisible();
     this.terminal.open(this.container);
-    try { this.fitAddon.fit(); } catch {}
+    this._fitWithRetry(3);
     const dims = this.fitAddon.proposeDimensions();
     if (dims) { this.cols = dims.cols; this.rows = dims.rows; }
     this.terminal.onData((data) => {
@@ -51,6 +51,23 @@ export class TerminalInstance {
     });
     this._observeResize();
     this.connect();
+  }
+
+  async _waitVisible() {
+    for (let i = 0; i < 10; i++) {
+      const w = this.container.offsetWidth;
+      const h = this.container.offsetHeight;
+      const ph = this.container.parentElement ? this.container.parentElement.offsetHeight : 0;
+      if (w > 50 && (h > 50 || ph > 50)) return;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  }
+
+  _fitWithRetry(n) {
+    try { this.fitAddon.fit(); } catch {}
+    if (n <= 0) return;
+    const d = this.fitAddon.proposeDimensions();
+    if (!d || d.cols < 10) setTimeout(() => this._fitWithRetry(n - 1), 60);
   }
 
 
