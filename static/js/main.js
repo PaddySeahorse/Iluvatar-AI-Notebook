@@ -45,6 +45,8 @@ import {
 import { SSEKernelClient } from './sse-client.js';
 import { StreamOutputRenderer } from './output-renderer.js';
 import { KernelIndicator } from './kernel-indicator.js';
+import { TerminalPanel } from './terminal/terminal-panel.js';
+import { bindTerminalShortcuts } from './terminal/terminal-shortcuts.js';
 
 // Rerender helper to keep view in sync with state changes
 function triggerRender() {
@@ -1865,4 +1867,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     setupEventListeners();
+    const termRoot = document.getElementById("terminalPanel");
+    if (termRoot) {
+        const termPanel = new TerminalPanel();
+        termPanel.mount(termRoot);
+        bindTerminalShortcuts(termPanel);
+        window.__terminalPanel = termPanel;
+    }
 });

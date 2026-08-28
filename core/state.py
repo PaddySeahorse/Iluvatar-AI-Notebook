@@ -48,6 +48,8 @@ class AppState:
             kernel_name=KERNEL_NAME,
             use_iluvatar_provisioner=_USE_ILUVATAR_PROVISIONER,
         )
+        from core.terminal.manager import TerminalManager
+        self.terminal_manager = TerminalManager(workspace_dir=os.path.realpath('.'))
         self.WORKSPACE_DIR = os.path.realpath('.')
         self.DEFAULT_API_URL = DEFAULT_API_URL
         self.DEFAULT_API_TOKEN = DEFAULT_API_TOKEN

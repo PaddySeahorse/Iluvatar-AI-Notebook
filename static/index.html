@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="static/vendor/codemirror/codemirror.min.css">
     <link rel="stylesheet" href="static/vendor/codemirror/theme/dracula.min.css">
     <link rel="stylesheet" href="static/vendor/codemirror/theme/neo.min.css">
+    <link rel="stylesheet" href="static/vendor/xterm/xterm.css">
     <!-- 嵌入模式（由 Chainlit iframe 通过 ?embed=1 加载）时隐藏 AI 侧边栏，
          因为对话能力已由 Chainlit 承担。独立运行 python app_fastapi.py 时不受影响。 -->
     <script>
@@ -237,6 +238,7 @@
             <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
         </button>
     </main>
+    <div id="terminalPanel" class="terminal-panel"></div>
 
     <!-- Settings Modal -->
     <div class="modal-overlay" id="settingsModal">

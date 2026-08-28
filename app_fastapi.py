@@ -89,6 +89,10 @@ async def lifespan(app: FastAPI):
         atexit.unregister(app_state.kernel_manager.stop_watchdog)
         await run_in_threadpool(app_state.kernel_manager.stop_watchdog)
         await run_in_threadpool(app_state.kernel_manager.shutdown)
+        try:
+            await app_state.terminal_manager.shutdown_all()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
