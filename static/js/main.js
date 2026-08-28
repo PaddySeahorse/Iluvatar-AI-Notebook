@@ -453,6 +453,21 @@ async function refreshNotebooksListFromServer() {
 }
 
 // Bind Global UI Elements
+function deriveLitellmUiUrl(url) {
+    // External networks can only reach the Flask port, so the WebUI is
+    // consumed same-origin through the backend's reverse proxy.
+    return '/ui/';
+}
+
+function refreshLitellmUiUrl() {
+    const el = document.getElementById('litellmUiUrl');
+    if (el) {
+        el.textContent = deriveLitellmUiUrl();
+        el.title = '经应用端口反向代理的同源地址';
+    }
+    return deriveLitellmUiUrl();
+}
+
 function setupEventListeners() {
     const refreshVarsBtn = document.getElementById('refreshVarsBtn');
     if (refreshVarsBtn) {
@@ -635,21 +650,8 @@ function setupEventListeners() {
     // Settings Modal
     const settingsModal = document.getElementById('settingsModal');
     const apiUrlInput = document.getElementById('apiUrlInput');
-    const litellmUiUrlEl = document.getElementById('litellmUiUrl');
     const litellmUiFrameWrap = document.getElementById('litellmUiFrameWrap');
     const litellmUiFrame = document.getElementById('litellmUiFrame');
-
-    function deriveLitellmUiUrl(url) {
-        // External networks can only reach the Flask port, so the WebUI is
-        // consumed same-origin through the backend's reverse proxy.
-        return '/ui/';
-    }
-
-    function refreshLitellmUiUrl() {
-        litellmUiUrlEl.textContent = deriveLitellmUiUrl();
-        litellmUiUrlEl.title = '经应用端口反向代理的同源地址';
-        return deriveLitellmUiUrl();
-    }
 
     document.getElementById('settingsBtn').addEventListener('click', () => {
         settingsModal.classList.add('open');
