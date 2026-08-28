@@ -158,7 +158,7 @@ class _SlowKM(_FakeKM):
 
 def test_execute_run_cell_timeout(tmp_path):
     ctx = {
-        'kernel_manager': _SlowKM(sleep_seconds=10),
+        'kernel_manager': _SlowKM(sleep_seconds=1.0),
         'workspace_dir': str(tmp_path),
         'is_safe_path': lambda p: is_safe_path(str(tmp_path), p),
     }

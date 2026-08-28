@@ -238,7 +238,7 @@ def test_tool_timeout_yields_error_and_continues(monkeypatch):
     monkeypatch.setattr(agent_module, 'TOOL_TIMEOUT', 0.5)
 
     slow_state = _state()
-    slow_state.kernel_manager = _SlowKM(sleep_seconds=10)
+    slow_state.kernel_manager = _SlowKM(sleep_seconds=1.0)
 
     events = list(agent_loop(
         url='http://x/v1/chat/completions',
