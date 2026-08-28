@@ -31,7 +31,17 @@ class TestSaveConfigEndpoint:
             shutdown=lambda: None,
         )
         monkeypatch.setattr(app_state, 'kernel_manager', fake_kernel)
+        # The save route also syncs the local LiteLLM Proxy; stub it out and
+        # record the call so the test can assert the proxy is updated.
+        sync_calls = []
+        monkeypatch.setattr(
+            'core.routes.ai_routes.litellm_manager',
+            SimpleNamespace(
+                sync_config=lambda url, token, model: sync_calls.append((url, token, model)) or True
+            ),
+        )
         with TestClient(app) as c:
+            c._sync_calls = sync_calls
             yield c
 
     def test_saves_config_file_and_syncs_runtime_defaults(self, client, monkeypatch, tmp_path):
@@ -58,6 +68,11 @@ class TestSaveConfigEndpoint:
         assert app_state.DEFAULT_API_MODEL == 'dsv7'
         assert os.environ.get('OPENI_API_URL') == 'https://new.example/v1/chat/completions'
         assert os.environ.get('OPENI_API_MODEL') == 'dsv7'
+
+        # The local LiteLLM Proxy route is updated with the same upstream triple.
+        assert client._sync_calls == [
+            ('https://new.example/v1/chat/completions', 'secret-token', 'dsv7')
+        ]
 
     def test_rejects_empty_url_or_model(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv('HOME', str(tmp_path))

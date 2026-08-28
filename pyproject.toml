@@ -35,6 +35,7 @@ dependencies = [
     "nbformat>=5.9",
     "pyzmq>=25.0",
     "requests>=2.31",
+    "litellm[proxy]>=1.40",
     "matplotlib>=3.7",
     "chainlit>=2.12.0",
 ]

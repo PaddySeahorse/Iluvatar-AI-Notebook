@@ -212,33 +212,33 @@
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-card">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-gears" aria-hidden="true"></i> 云端 LLM API 配置</h2>
+                <h2><i class="fa-solid fa-gears" aria-hidden="true"></i> 模型 API 配置（LiteLLM 上游）</h2>
                 <button id="closeSettingsBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="settings-desc">配置 LiteLLM Proxy 端点（OpenAI 兼容网关），模型路由、密钥与预算管理请使用下方 LiteLLM 原生管理台。</p>
+                <p class="settings-desc">这里填写<strong>真实模型提供方</strong>的 OpenAI 兼容 API。应用自启动本地 LiteLLM Proxy（<code>http://localhost:4000/v1</code>），OpenAI SDK 固定请求该代理，代理再按下方配置把请求转发给真实模型。模型路由、密钥与预算管理请使用 LiteLLM 原生管理台。</p>
 
                 <div class="form-group">
-                    <label for="apiUrlInput">LiteLLM Proxy 地址 (Base URL)</label>
-                    <input type="text" id="apiUrlInput" placeholder="http://localhost:4000/v1" autocomplete="off" name="apiUrl">
-                    <small>OpenAI 兼容的 /v1 端点，例如 http://localhost:4000/v1</small>
+                    <label for="apiUrlInput">上游模型 API 地址 (Base URL)</label>
+                    <input type="text" id="apiUrlInput" placeholder="https://api.deepseek.com/v1" autocomplete="off" name="apiUrl">
+                    <small>模型提供方的 OpenAI 兼容 /v1 端点，例如 https://api.deepseek.com/v1 或 https://token.openi.org.cn/v1</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="apiTokenInput">API Access Token (Bearer Token)</label>
+                    <label for="apiTokenInput">上游模型 API Key</label>
                     <div class="password-input-wrapper">
                         <input type="password" id="apiTokenInput" placeholder="sk-..." autocomplete="off" name="apiToken">
                         <button id="toggleTokenVisibility" type="button" class="eye-btn" aria-label="切换 Token 显示">
                             <i class="fa-solid fa-eye" aria-hidden="true"></i>
                         </button>
                     </div>
-                    <small>用于鉴权的 Token 秘钥</small>
+                    <small>真实模型提供方鉴权用的 Key，仅本地配置与 LiteLLM 代理使用</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="modelInput">模型名称 (Model Name)</label>
+                    <label for="modelInput">上游模型名称 (Model Name)</label>
                     <input type="text" id="modelInput" placeholder="dsv4" autocomplete="off" name="model">
-                    <small>请求中携带的 model 字段，例如：dsv4</small>
+                    <small>请求真实模型时携带的 model 字段，例如：dsv4</small>
                 </div>
 
                 <div class="form-group litellm-ui-group">

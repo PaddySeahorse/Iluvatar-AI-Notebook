@@ -732,7 +732,7 @@ function setupEventListeners() {
 
         settingsModal.classList.remove('open');
         showFloatingNotification(
-            persisted ? '配置已保存！' : '已保存到浏览器，但写入服务器配置文件失败'
+            persisted ? '上游模型配置已保存，LiteLLM 代理已更新' : '已保存到浏览器，但写入服务器配置文件失败'
         );
     });
 

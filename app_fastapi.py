@@ -40,6 +40,7 @@ from core.observability import (
     new_trace_id,
     set_trace_id,
 )
+from core.litellm_manager import litellm_manager
 from core.routes import register_error_handlers, register_routers
 from core.state import app_state
 from core.user_config import apply_saved_config
@@ -56,6 +57,17 @@ configure_logging(level=_log_level)
 
 # 从 ~/.Iluvatar-AI-Notebook/config.yaml 恢复（首次运行自环境种子化）
 apply_saved_config()
+# state.py 的 DEFAULT_API_* 模块常量在 env 恢复前已初始化；配置恢复进
+# os.environ 后把运行时默认值同步为已保存值，get_config / agent 默认请求
+# 才会使用用户保存的上游模型（而非模块默认）。
+for _key in ('OPENI_API_URL', 'OPENI_API_TOKEN', 'OPENI_API_MODEL'):
+    _saved = os.environ.get(_key)
+    if _saved:
+        setattr(
+            app_state,
+            'DEFAULT_API_' + _key.replace('OPENI_API_', ''),
+            _saved,
+        )
 
 
 def _cleanup_gpu():
@@ -93,6 +105,7 @@ async def lifespan(app: FastAPI):
             await app_state.terminal_manager.shutdown_all()
         except Exception:
             pass
+        litellm_manager.shutdown()
 
 
 # ---------------------------------------------------------------------------

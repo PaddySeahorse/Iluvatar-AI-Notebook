@@ -1,5 +1,8 @@
 // API services for Iluvatar AI Notebook
 
+// The config triple describes the UPSTREAM model endpoint that the local
+// LiteLLM Proxy routes to (not where the OpenAI SDK sends its request — the
+// SDK always talks to the self-hosted proxy at localhost:4000).
 export const apiConfig = {
     url: '',
     token: '',
@@ -35,8 +38,9 @@ export async function initConfig() {
     return apiConfig;
 }
 
-// Save API configuration (to localStorage and, if available, the backend
-// host-side config file ~/.Iluvatar-AI-Notebook/config.yaml)
+// Save upstream model API config (localStorage + the backend host-side config
+// file ~/.Iluvatar-AI-Notebook/config.yaml; the backend also rewrites the
+// local LiteLLM Proxy model route from this triple)
 export async function saveApiConfig(url, token, model) {
     apiConfig.url = url;
     apiConfig.token = token;

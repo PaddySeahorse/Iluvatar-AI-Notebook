@@ -1,6 +1,9 @@
 # Environment variables (contains secrets)
 .env
 
+# Ad-hoc notebook scratch files created by the running kernel
+Untitled.ipynb
+
 # Python
 __pycache__/
 *.pyc

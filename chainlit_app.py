@@ -92,12 +92,12 @@ async def on_chat_start() -> None:
     cl.user_session.set("max_steps", 6)
 
     cfg = _llm_config()
-    if not cfg["token"]:
+    if not (cfg["url"] and cfg["model"]):
         await cl.Message(
             content=(
-                "**LLM API Token 未配置。**\n\n"
-                "请设置 `OPENI_API_TOKEN` 环境变量，或先在 Notebook "
-                "（左侧面板 → 设置）里保存模型配置。"
+                "**上游模型 API 未配置。**\n\n"
+                "请先在 Notebook（左侧面板 → 设置）里保存模型配置，"
+                "应用会自启动本地 LiteLLM Proxy 并自动路由到该模型。"
             ),
         ).send()
 
@@ -134,9 +134,9 @@ async def on_message(message: cl.Message) -> None:
     max_steps: int = cl.user_session.get("max_steps", 6)
 
     cfg = _llm_config()
-    if not cfg["token"]:
+    if not (cfg["url"] and cfg["model"]):
         await cl.Message(
-            content="未配置 API Token，请设置 `OPENI_API_TOKEN` 或先在 Notebook 里保存配置。"
+            content="上游模型 API 未配置，请先在 Notebook 里保存模型配置。"
         ).send()
         return
 
