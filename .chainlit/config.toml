@@ -45,8 +45,8 @@ layout = "wide"
 confirm_new_chat = true
 cot = "full"
 alert_style = "classic"
-custom_css = "/public/custom.css"
-custom_js = "/public/custom.js"
+custom_css = "/public/custom.css?v=260828c"
+custom_js = "/public/custom.js?v=260828c"
 
 [meta]
 generated_by = "2.12.0"

@@ -62,6 +62,43 @@ const activeSseClients = new Map();
 // call sites don't need to change.
 const kernelIndicator = new KernelIndicator();
 
+function getChainlitFrame() {
+    return document.getElementById('chainlitFrame');
+}
+
+function ensureAiTabActive() {
+    const aiBtn = document.getElementById('aiAssistantTabBtn');
+    const aiContent = document.getElementById('aiAssistantTabContent');
+    const execBtn = document.getElementById('execHistoryTabBtn');
+    const varBtn = document.getElementById('varInspectorTabBtn');
+    const execContent = document.getElementById('execHistoryTabContent');
+    const varContent = document.getElementById('varInspectorTabContent');
+    if (aiBtn && aiContent) {
+        [aiBtn, execBtn, varBtn].forEach(b => b && b.classList.remove('active'));
+        [aiContent, execContent, varContent].forEach(c => c && c.classList.add('hidden'));
+        aiBtn.classList.add('active');
+        aiContent.classList.remove('hidden');
+    }
+    const aiSidebar = document.getElementById('aiSidebar');
+    const openBtn = document.getElementById('openSidebarFloatingBtn');
+    if (aiSidebar && aiSidebar.classList.contains('collapsed')) {
+        aiSidebar.classList.remove('collapsed');
+        if (openBtn) openBtn.classList.add('hidden');
+    }
+}
+
+function sendToChainlit(text) {
+    const frame = getChainlitFrame();
+    if (!frame || !frame.contentWindow) return false;
+    ensureAiTabActive();
+    try {
+        frame.contentWindow.postMessage({ type: 'iluvatar:ask', text }, '*');
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
 // Callbacks passed to renderer.js to decouple it from state mutation logic
 const rendererCallbacks = {
     onRunCell: (id) => runCell(id),
@@ -766,7 +803,6 @@ function setupEventListeners() {
         });
     }
 
-    // Sidebar AI Chat
     const aiSidebar = document.getElementById('aiSidebar');
     const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
     
@@ -778,25 +814,6 @@ function setupEventListeners() {
     openSidebarBtn.addEventListener('click', () => {
         aiSidebar.classList.remove('collapsed');
         openSidebarBtn.classList.add('hidden');
-    });
-
-    document.getElementById('sendChatBtn').addEventListener('click', sendChatMessage);
-    document.getElementById('chatInput').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendChatMessage();
-        }
-    });
-
-    // Bind Quick prompts in chat
-    document.querySelectorAll('.quick-prompt-pill').forEach(pill => {
-        pill.addEventListener('click', (e) => {
-            const prompt = e.target.getAttribute('data-prompt');
-            if (prompt) {
-                document.getElementById('chatInput').value = prompt;
-                sendChatMessage();
-            }
-        });
     });
 
     // Document click to de-activate cells
@@ -1215,93 +1232,33 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     }
 }
 
-// AI Debugger for error cell
 async function runCellDebug(id, buttonElement) {
     const cell = state.cells.find(c => c.id === id);
     if (!cell || !cell.output || !cell.output.stderr) return;
-
     const originalText = buttonElement.innerHTML;
     buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block" aria-hidden="true"></i> 诊断中…';
     buttonElement.disabled = true;
-
-    const messages = [
-        {
-            role: 'system',
-            content: `你是一个部署在天数智芯(Iluvatar Corex) AI 开发 environment 下的代码调试专家。
-针对用户运行失败的代码以及异常 Traceback (Stderr)，分析其发生错误的原因，并提供修改后的正确完整代码。
-格式：请先用一段简短、精确的中文说明出错原因（少于 150 字），然后输出一个修改后的完整代码块，代码块请用 \`\`\`python ... \`\`\` 包裹起来。`
-        },
-        {
-            role: 'user',
-            content: `我的代码：\n${cell.content}\n\n执行报错 (Traceback)：\n${cell.output.stderr}`
-        }
-    ];
-
-    // Open Right Sidebar Chat
-    const aiSidebar = document.getElementById('aiSidebar');
-    const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
-    if (aiSidebar) aiSidebar.classList.remove('collapsed');
-    if (openSidebarBtn) openSidebarBtn.classList.add('hidden');
-
-    // Append user query message
-    appendChatMessage('user', `调试单元格代码 (错误诊断)`);
-
-    // Add thinking loader in chat
-    const loaderId = 'loader_' + Math.random().toString(36).substr(2, 9);
-    const chatHistory = document.getElementById('chatHistory');
-    
-    const loaderMsg = document.createElement('div');
-    loaderMsg.className = 'chat-message assistant';
-    loaderMsg.id = loaderId;
-    loaderMsg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
-        <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite" aria-hidden="true"></i> 思考中，请稍候…</span>
-        </div>
-    `;
-    if (chatHistory) {
-        chatHistory.appendChild(loaderMsg);
-        chatHistory.scrollTop = chatHistory.scrollHeight;
+    const text = `调试单元格代码 (错误诊断)\n\n我的代码：\n\`\`\`python\n${cell.content}\n\`\`\`\n\n执行报错 (Traceback)：\n${cell.output.stderr}\n\n请分析原因并给出修复后的完整代码。`;
+    const sent = sendToChainlit(text);
+    if (sent) {
+        showFloatingNotification('已将诊断请求发送至 AI 助手');
+        setTimeout(() => { buttonElement.innerHTML = originalText; buttonElement.disabled = false; }, 800);
+        return;
     }
-
-    let streamMessage = null;
-
-    try {
-        await callLlmProxyStream(
-            messages,
-            (chunkText) => {
-                if (!streamMessage) {
-                    const loader = document.getElementById(loaderId);
-                    if (loader) loader.remove();
-                    streamMessage = appendStreamingChatMessage('assistant');
-                }
-                streamMessage.update(chunkText);
-            }
-        );
-    } catch (e) {
-        console.warn("Streaming debug failed, falling back to non-streaming:", e);
-        try {
-            const reply = await callLlmProxy(messages);
-            const loader = document.getElementById(loaderId);
-            if (loader) loader.remove();
-            appendChatMessage('assistant', reply);
-        } catch (fallbackErr) {
-            const loader = document.getElementById(loaderId);
-            if (loader) loader.remove();
-            appendChatMessage('assistant', `⚠️ 诊断出错: ${fallbackErr.message}\n请检查 API 配置。`);
-        }
-    } finally {
-        buttonElement.innerHTML = originalText;
-        buttonElement.disabled = false;
-    }
+    buttonElement.innerHTML = originalText;
+    buttonElement.disabled = false;
+    showFloatingNotification('AI 助手未就绪，请在右侧 AI 助手手动提问');
 }
 
-// Sidebar Chat Flow — routed through the ReAct agent (React + Tool use).
 async function sendChatMessage() {
     const chatInput = document.getElementById('chatInput');
-    const query = chatInput ? chatInput.value.trim() : '';
+    if (!chatInput) return;
+    const query = chatInput.value.trim();
     if (!query) return;
-
+    if (sendToChainlit(query)) {
+        chatInput.value = '';
+        return;
+    }
     chatInput.value = '';
     appendChatMessage('user', query);
 
@@ -1529,6 +1486,7 @@ function attachCodeBlockActions(container) {
 
 function appendChatMessage(sender, text) {
     const chatHistory = document.getElementById('chatHistory');
+    if (!chatHistory) return;
     const msg = document.createElement('div');
     msg.className = `chat-message ${sender}`;
     
@@ -1549,6 +1507,7 @@ function appendChatMessage(sender, text) {
 
 function appendStreamingChatMessage(sender) {
     const chatHistory = document.getElementById('chatHistory');
+    if (!chatHistory) return { update: () => {} };
     const msg = document.createElement('div');
     msg.className = `chat-message ${sender}`;
     
@@ -1715,93 +1674,16 @@ function renderHistoryList() {
     });
 }
 
-// AI Code Explanation inside Sidebar
 async function runCellExplain(id) {
     const cell = state.cells.find(c => c.id === id);
     if (!cell) return;
-
-    // Open Right Sidebar Chat & Switch to AI Assistant Tab
-    const aiSidebar = document.getElementById('aiSidebar');
-    const openSidebarBtn = document.getElementById('openSidebarFloatingBtn');
-    if (aiSidebar) aiSidebar.classList.remove('collapsed');
-    if (openSidebarBtn) openSidebarBtn.classList.add('hidden');
-
-    const aiAssistantTabBtn = document.getElementById('aiAssistantTabBtn');
-    const execHistoryTabBtn = document.getElementById('execHistoryTabBtn');
-    const varInspectorTabBtn = document.getElementById('varInspectorTabBtn');
-    const aiAssistantTabContent = document.getElementById('aiAssistantTabContent');
-    const execHistoryTabContent = document.getElementById('execHistoryTabContent');
-    const varInspectorTabContent = document.getElementById('varInspectorTabContent');
-
-    if (aiAssistantTabBtn && execHistoryTabBtn && varInspectorTabBtn) {
-        [aiAssistantTabBtn, execHistoryTabBtn, varInspectorTabBtn].forEach(btn => btn.classList.remove('active'));
-        [aiAssistantTabContent, execHistoryTabContent, varInspectorTabContent].forEach(content => content.classList.add('hidden'));
-        
-        aiAssistantTabBtn.classList.add('active');
-        aiAssistantTabContent.classList.remove('hidden');
+    const text = `解释以下代码的含义与作用：\n\`\`\`python\n${cell.content}\n\`\`\``;
+    const sent = sendToChainlit(text);
+    if (sent) {
+        showFloatingNotification('已将解释请求发送至 AI 助手');
+        return;
     }
-
-    // Append explanation query
-    appendChatMessage('user', `解释以下代码的含义与作用：\n\`\`\`python\n${cell.content}\n\`\`\``);
-
-    // Add thinking loader
-    const loaderId = 'loader_' + Math.random().toString(36).substr(2, 9);
-    const chatHistory = document.getElementById('chatHistory');
-    
-    const loaderMsg = document.createElement('div');
-    loaderMsg.className = 'chat-message assistant';
-    loaderMsg.id = loaderId;
-    loaderMsg.innerHTML = `
-        <div class="chat-avatar"><i class="fa-solid fa-robot" aria-hidden="true"></i></div>
-        <div class="chat-bubble">
-            <span style="color:var(--text-muted)"><i class="fa-solid fa-compass-drafting loading-icon" style="display:inline-block;animation:spin 1.5s linear infinite" aria-hidden="true"></i> 正在分析代码，请稍候…</span>
-        </div>
-    `;
-    if (chatHistory) {
-        chatHistory.appendChild(loaderMsg);
-        chatHistory.scrollTop = chatHistory.scrollHeight;
-    }
-
-    const messages = [
-        {
-            role: 'system',
-            content: `你是一个部署在天数智芯 (Iluvatar Corex) AI 开发环境下的代码解释专家。
-请使用精简且专业的中文解释用户提供的 Python 代码的含义、结构、设计逻辑以及其作用。
-如果代码中包含天数智芯国产算力/PyTorch加速相关的指令与设置，请重点解释说明。请以排版清晰的 markdown 格式输出。`
-        },
-        {
-            role: 'user',
-            content: `需要解释的代码：\n\`\`\`python\n${cell.content}\n\`\`\``
-        }
-    ];
-
-    let streamMessage = null;
-
-    try {
-        await callLlmProxyStream(
-            messages,
-            (chunkText) => {
-                if (!streamMessage) {
-                    const loader = document.getElementById(loaderId);
-                    if (loader) loader.remove();
-                    streamMessage = appendStreamingChatMessage('assistant');
-                }
-                streamMessage.update(chunkText);
-            }
-        );
-    } catch (e) {
-        console.warn("Streaming code explanation failed, falling back to non-streaming:", e);
-        try {
-            const reply = await callLlmProxy(messages);
-            const loader = document.getElementById(loaderId);
-            if (loader) loader.remove();
-            appendChatMessage('assistant', reply);
-        } catch (fallbackErr) {
-            const loader = document.getElementById(loaderId);
-            if (loader) loader.remove();
-            appendChatMessage('assistant', `⚠️ 解释出错: ${fallbackErr.message}\n请检查 [设置] 中的 API 配置。`);
-        }
-    }
+    showFloatingNotification('AI 助手未就绪，请在右侧 AI 助手手动提问');
 }
 
 // Lifecycle Init: runs when DOM is ready

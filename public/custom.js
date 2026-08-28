@@ -1,31 +1,92 @@
-// 在 Chainlit 页面（/agent）左侧注入 Notebook iframe（加载 /?embed=1），
-// 与右侧聊天区域形成左右分栏。embed=1 会让 Notebook 隐藏其自身的 AI 侧边栏，
-// 避免与 Chainlit 对话能力重复。
 (function () {
-    function mountNotebookPanel() {
-        if (document.getElementById('notebook-panel')) {
-            return;
+    function findChainlitInput() {
+        const selectors = [
+            'textarea[placeholder]',
+            'textarea',
+            '[contenteditable="true"]',
+            'div[contenteditable="true"]'
+        ];
+        for (const sel of selectors) {
+            const els = document.querySelectorAll(sel);
+            for (const el of els) {
+                if (el.offsetParent !== null || el.isContentEditable) {
+                    const style = window.getComputedStyle(el);
+                    if (style.display !== 'none' && style.visibility !== 'hidden') return el;
+                }
+            }
         }
-        if (!document.body) {
-            return;
+        const root = document.getElementById('root');
+        if (root) {
+            const ta = root.querySelector('textarea');
+            if (ta) return ta;
+            const ce = root.querySelector('[contenteditable]');
+            if (ce) return ce;
         }
-        const panel = document.createElement('div');
-        panel.id = 'notebook-panel';
-        panel.setAttribute('aria-label', 'Iluvatar Notebook');
-
-        const iframe = document.createElement('iframe');
-        iframe.src = '/?embed=1';
-        iframe.setAttribute('frameborder', '0');
-        iframe.setAttribute('title', 'Iluvatar AI Notebook');
-        iframe.setAttribute('allow', 'clipboard-write');
-
-        panel.appendChild(iframe);
-        document.body.insertBefore(panel, document.body.firstChild);
+        return null;
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mountNotebookPanel);
-    } else {
-        mountNotebookPanel();
+    function findSendButton(input) {
+        if (input) {
+            const form = input.closest('form');
+            if (form) {
+                const btn = form.querySelector('button[type="submit"]') || form.querySelector('button');
+                if (btn) return btn;
+            }
+            const container = input.parentElement;
+            if (container) {
+                const siblingBtn = container.querySelector('button');
+                if (siblingBtn) return siblingBtn;
+            }
+        }
+        const candidates = document.querySelectorAll('button');
+        for (const b of candidates) {
+            if (b.querySelector('svg') && b.closest('#root')) return b;
+            const t = (b.getAttribute('aria-label') || '').toLowerCase();
+            if (t.includes('send') || t.includes('发送')) return b;
+        }
+        return null;
     }
+
+    function fillAndSend(text) {
+        function attempt(retries) {
+            const input = findChainlitInput();
+            if (!input) {
+                if (retries > 0) setTimeout(() => attempt(retries - 1), 500);
+                return;
+            }
+            input.focus();
+            try {
+                if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+                        || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+                    if (setter) setter.call(input, text);
+                    else input.value = text;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (input.isContentEditable) {
+                    input.textContent = text;
+                    input.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
+                }
+            } catch (e) {}
+            setTimeout(() => {
+                const btn = findSendButton(input);
+                if (btn) {
+                    btn.click();
+                } else {
+                    try {
+                        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+                        input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', bubbles: true }));
+                    } catch (e) {}
+                }
+            }, 120);
+        }
+        attempt(12);
+    }
+
+    window.addEventListener('message', (event) => {
+        if (!event.data || event.data.type !== 'iluvatar:ask') return;
+        const text = event.data.text;
+        if (!text || typeof text !== 'string') return;
+        fillAndSend(text);
+    });
 })();
