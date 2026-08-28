@@ -47,6 +47,7 @@ class TestIsLitellmPath:
         assert not litellm_routes.is_litellm_path('/modelsx')
         assert not litellm_routes.is_litellm_path('/useragent')
         assert not litellm_routes.is_litellm_path('/')
+        assert not litellm_routes.is_litellm_path('/favicon.ico')
 
 
 class _FakeUpstream:
@@ -134,6 +135,10 @@ class TestProxyForwarding:
 
     def test_non_whitelisted_path_404(self, client):
         resp = client.get('/definitely/not/litellm')
+        assert resp.status_code == 404
+
+    def test_favicon_not_proxied_404(self, client):
+        resp = client.get('/favicon.ico')
         assert resp.status_code == 404
 
     def test_app_routes_unaffected(self, client):

@@ -46,7 +46,6 @@ LITELLM_PREFIXES = (
     '/spend',
     '/config',
     '/get_favicon',
-    '/favicon.ico',
     '/sso',
     '/login',
     '/logout',
