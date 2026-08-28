@@ -125,6 +125,89 @@ body {
     background: var(--border-color-active);
 }
 
+.vscode-titlebar {
+    height: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    background-color: #111524;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    z-index: 20;
+    gap: 12px;
+}
+.light-theme .vscode-titlebar {
+    background-color: #eef2f7;
+}
+.vscode-titlebar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+.vscode-titlebar-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+.vscode-titlebar-icon {
+    color: var(--accent);
+    font-size: 0.85rem;
+}
+.vscode-titlebar-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+.vscode-titlebar-right {
+    flex: 1;
+}
+.vscode-layout-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 2px;
+}
+.vscode-layout-btn {
+    width: 30px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: var(--transition-smooth);
+}
+.vscode-layout-btn:hover {
+    background: var(--bg-surface-active);
+    color: var(--text-primary);
+}
+.vscode-layout-btn.active {
+    background: var(--bg-surface-active);
+    color: var(--accent);
+    border-color: var(--border-color-active);
+}
+.vscode-layout-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 /* Top Navigation Bar */
 .top-nav {
     display: flex;

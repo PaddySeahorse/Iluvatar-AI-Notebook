@@ -570,6 +570,31 @@ function setupEventListeners() {
         });
     }
 
+    function syncVscodeLayoutButtons() {
+        const leftBtn = document.getElementById('vscodeToggleLeft');
+        const rightBtn = document.getElementById('vscodeToggleRight');
+        const bottomBtn = document.getElementById('vscodeToggleBottom');
+        const fs = document.getElementById('fileSidebar');
+        const rs = document.getElementById('aiSidebar');
+        const tp = document.getElementById('terminalPanel');
+        if (leftBtn && fs) {
+            const open = !fs.classList.contains('collapsed');
+            leftBtn.classList.toggle('active', open);
+            leftBtn.setAttribute('aria-pressed', String(open));
+        }
+        if (rightBtn && rs) {
+            const open = !rs.classList.contains('collapsed');
+            rightBtn.classList.toggle('active', open);
+            rightBtn.setAttribute('aria-pressed', String(open));
+        }
+        if (bottomBtn && tp) {
+            const open = tp.classList.contains('open');
+            bottomBtn.classList.toggle('active', open);
+            bottomBtn.setAttribute('aria-pressed', String(open));
+        }
+    }
+    window.syncVscodeLayoutButtons = syncVscodeLayoutButtons;
+
     // Left File Sidebar Toggle
     const fileSidebar = document.getElementById('fileSidebar');
     const openFileSidebarBtn = document.getElementById('openFileSidebarFloatingBtn');
@@ -579,11 +604,13 @@ function setupEventListeners() {
         toggleFileSidebarBtn.addEventListener('click', () => {
             fileSidebar.classList.add('collapsed');
             openFileSidebarBtn.classList.remove('hidden');
+            syncVscodeLayoutButtons();
         });
         
         openFileSidebarBtn.addEventListener('click', () => {
             fileSidebar.classList.remove('collapsed');
             openFileSidebarBtn.classList.add('hidden');
+            syncVscodeLayoutButtons();
         });
     }
 
@@ -809,12 +836,63 @@ function setupEventListeners() {
     document.getElementById('toggleSidebarBtn').addEventListener('click', () => {
         aiSidebar.classList.add('collapsed');
         openSidebarBtn.classList.remove('hidden');
+        if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons();
     });
 
     openSidebarBtn.addEventListener('click', () => {
         aiSidebar.classList.remove('collapsed');
         openSidebarBtn.classList.add('hidden');
+        if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons();
     });
+
+    const vscodeLeftBtn = document.getElementById('vscodeToggleLeft');
+    const vscodeRightBtn = document.getElementById('vscodeToggleRight');
+    const vscodeBottomBtn = document.getElementById('vscodeToggleBottom');
+    if (vscodeLeftBtn) {
+        vscodeLeftBtn.addEventListener('click', () => {
+            const fs = document.getElementById('fileSidebar');
+            const openBtn = document.getElementById('openFileSidebarFloatingBtn');
+            if (!fs) return;
+            const willCollapse = !fs.classList.contains('collapsed');
+            if (willCollapse) {
+                fs.classList.add('collapsed');
+                if (openBtn) openBtn.classList.remove('hidden');
+            } else {
+                fs.classList.remove('collapsed');
+                if (openBtn) openBtn.classList.add('hidden');
+            }
+            if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons();
+        });
+    }
+    if (vscodeRightBtn) {
+        vscodeRightBtn.addEventListener('click', () => {
+            const rs = document.getElementById('aiSidebar');
+            const openBtn2 = document.getElementById('openSidebarFloatingBtn');
+            if (!rs) return;
+            const willCollapse = !rs.classList.contains('collapsed');
+            if (willCollapse) {
+                rs.classList.add('collapsed');
+                if (openBtn2) openBtn2.classList.remove('hidden');
+            } else {
+                rs.classList.remove('collapsed');
+                if (openBtn2) openBtn2.classList.add('hidden');
+            }
+            if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons();
+        });
+    }
+    if (vscodeBottomBtn) {
+        vscodeBottomBtn.addEventListener('click', () => {
+            const tp = window.__terminalPanel;
+            if (tp) tp.toggle();
+            else {
+                const el = document.getElementById('terminalPanel');
+                if (el) el.classList.toggle('open');
+            }
+            setTimeout(() => { if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons(); }, 50);
+        });
+    }
+    new MutationObserver(() => { if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons(); }).observe(document.getElementById('terminalPanel') || document.body, { attributes: true, attributeFilter: ['class'], subtree: false });
+    if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons();
 
     // Document click to de-activate cells
     document.addEventListener('click', (e) => {
@@ -1757,5 +1835,11 @@ document.addEventListener('DOMContentLoaded', () => {
         termPanel.mount(termRoot);
         bindTerminalShortcuts(termPanel);
         window.__terminalPanel = termPanel;
+        setTimeout(() => { if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons(); }, 200);
+        const origApply = termPanel._applyState.bind(termPanel);
+        termPanel._applyState = function() {
+            origApply();
+            if (window.syncVscodeLayoutButtons) window.syncVscodeLayoutButtons();
+        };
     }
 });

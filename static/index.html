@@ -31,6 +31,19 @@
 </head>
 <body class="dark-theme">
     <a href="#cellsList" class="skip-link">跳转到主内容</a>
+    <div class="vscode-titlebar" role="toolbar" aria-label="布局控制">
+        <div class="vscode-titlebar-left">
+            <span class="vscode-titlebar-title"><i class="fa-solid fa-cubes vscode-titlebar-icon" aria-hidden="true"></i> Iluvatar AI Notebook</span>
+        </div>
+        <div class="vscode-titlebar-center">
+            <div class="vscode-layout-controls" role="group" aria-label="侧栏布局">
+                <button id="vscodeToggleLeft" class="vscode-layout-btn active" title="左侧栏 (文件浏览器)" aria-label="切换左侧栏" aria-pressed="true"><i class="fa-solid fa-table-columns" aria-hidden="true"></i></button>
+                <button id="vscodeToggleBottom" class="vscode-layout-btn" title="底部面板 (终端)" aria-label="切换底部终端" aria-pressed="false"><i class="fa-solid fa-terminal" aria-hidden="true"></i></button>
+                <button id="vscodeToggleRight" class="vscode-layout-btn active" title="右侧栏 (AI 助手)" aria-label="切换右侧栏" aria-pressed="true"><i class="fa-solid fa-table-columns fa-flip-horizontal" aria-hidden="true"></i></button>
+            </div>
+        </div>
+        <div class="vscode-titlebar-right"></div>
+    </div>
     <!-- Top Navigation Bar -->
     <header class="top-nav">
         <div class="nav-left">
