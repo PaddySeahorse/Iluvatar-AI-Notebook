@@ -1,10 +1,9 @@
-"""Unit tests for core.iluvatar_provisioner.IluvatarProvisioner (P4).
+"""Unit tests for core.iluvatar_provisioner.IluvatarProvisioner.
 
 These tests mock all subprocess / GPU calls so they run on any machine
 without Iluvatar hardware or the IXUCA SDK installed.
 
-Coverage matches the P4 acceptance criteria in
-docs/roadmap/migration-roadmap.md §3.5:
+Coverage:
   - pre_launch injects IXUCA env vars
   - send_signal performs GPU-aware interrupt for SIGINT
   - cleanup releases GPU resources

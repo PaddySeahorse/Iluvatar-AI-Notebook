@@ -1,4 +1,4 @@
-// Unit tests for the pure helpers exported from static/js/completion.js (P3).
+// Unit tests for the pure helpers exported from static/js/completion.js.
 //
 // Run with: node --test tests/js/completion.test.mjs
 //

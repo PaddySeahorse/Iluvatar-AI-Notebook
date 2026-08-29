@@ -1,4 +1,4 @@
-"""Integration tests for the Iluvatar GPU provisioner (P4).
+"""Integration tests for the Iluvatar GPU provisioner.
 
 These tests run against real Iluvatar GPU hardware and the IXUCA SDK.  They are
 marked ``@pytest.mark.iluvatar`` so they can be deselected in CI lanes that lack

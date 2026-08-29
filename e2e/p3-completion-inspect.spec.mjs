@@ -1,9 +1,7 @@
-// P3 completion & introspection E2E suite — uses Playwright + Google Chrome.
+// Completion & introspection E2E suite — uses Playwright + Google Chrome.
 //
-// Spins up nothing itself: the Flask backend on http://127.0.0.1:5000 must
-// already be running (background process). Scenarios cover the P3 acceptance
-// criteria from docs/plan/frontend-adaptation-plan.md §3 and
-// docs/plan/testing-and-rollout.md §4.1 (补全 / 内省):
+// Spins up nothing itself: the backend on http://127.0.0.1:5000 must
+// already be running (background process). Scenarios:
 //   - Tab completion: type "np." → Tab → completion popup appears
 //   - Shift+Tab inspect: type "print" → Shift+Tab → inspect panel appears
 //   - Completion keyboard navigation: Down/Enter applies a match

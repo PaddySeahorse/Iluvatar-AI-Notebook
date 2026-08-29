@@ -6,7 +6,7 @@ const CodeMirror = window.CodeMirror;
 
 export const activeEditors = new Map();
 
-// P3: shared completion/inspect managers — both are singletons (one
+// Shared completion/inspect managers — both are singletons (one
 // completion popup and one inspect panel are shared across all editors).
 // This avoids leaking per-editor boxes into the DOM when the cell list
 // re-renders (which would happen with per-cell instances) and keeps the
@@ -302,7 +302,7 @@ function renderCodeEditor(cell, callbacks) {
         const isDark = document.body.classList.contains('dark-theme');
         const editorTheme = isDark ? 'dracula' : 'neo';
 
-        // P3: shared singletons — one completion popup + one inspect panel
+        // Shared singletons — one completion popup + one inspect panel
         // shared across all editors. Created lazily on first call.
         const completionMgr = getCompletionManager();
         const inspectMgr = getInspectManager();

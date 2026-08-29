@@ -1,4 +1,4 @@
-// CompletionManager: Tab-triggered code completion popup for CodeMirror — P3.
+// CompletionManager: Tab-triggered code completion popup for CodeMirror.
 //
 // One shared singleton (one box in the DOM) backs all editors. The popup is
 // anchored to the focused editor's cursor on demand. This avoids leaking
@@ -23,8 +23,7 @@ function _cmPass() {
 
 /**
  * Decide whether the text immediately before the cursor is a viable
- * completion trigger. Mirrors the heuristics in
- * docs/plan/frontend-adaptation-plan.md §3.1:
+ * completion trigger. Heuristics:
  *   - trigger characters: '.', '(', '['
  *   - otherwise, a trailing word of length >= 2
  *

@@ -1,8 +1,7 @@
 """Integration tests for core.kernel.KernelManager against a real ipykernel.
 
 These spawn an actual ipykernel subprocess (no mocking) to validate the
-end-to-end execution / streaming / interrupt / variable paths required by the
-P1 admission criteria in docs/roadmap/migration-roadmap.md.
+end-to-end execution / streaming / interrupt / variable paths.
 
 Marked ``integration`` so they can be deselected in fast CI lanes:
     pytest -m "not integration"

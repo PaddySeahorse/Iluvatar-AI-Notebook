@@ -131,7 +131,7 @@ async def get_variables(request: Request):
 
 @router.post('/api/complete')
 async def complete(request: Request):
-    """Code completion (P3).
+    """Code completion.
 
     Request:
         {"code": "...", "cursor_pos": <int>}
@@ -162,7 +162,7 @@ async def complete(request: Request):
 
 @router.post('/api/inspect')
 async def inspect(request: Request):
-    """Object introspection (? / ??) (P3).
+    """Object introspection (? / ??).
 
     Request:
         {"code": "...", "cursor_pos": <int>, "detail_level": 0|1}

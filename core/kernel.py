@@ -1,4 +1,4 @@
-"""Kernel management based on jupyter_client + ipykernel (P0 migration).
+"""Kernel management based on jupyter_client + ipykernel.
 
 This module provides the :class:`KernelManager` — a thread-safe supervisor that
 wraps ``jupyter_client``'s KernelManager/KernelClient to manage an ipykernel
@@ -438,7 +438,7 @@ class KernelManager:
                 return False
 
     # ------------------------------------------------------------------ #
-    #  Completion & inspection (P3)                                       #
+    #  Completion & inspection                                              #
     # ------------------------------------------------------------------ #
     #
     # These wrap jupyter_client's shell-channel complete_request /
