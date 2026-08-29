@@ -105,6 +105,7 @@ def register_routers(app):
     from .agent_routes import router as agent_router
     from .metrics_routes import router as metrics_router
     from .terminal_routes import router as terminal_router
+    from .terminal_routes import terminal_alias_router
     from .litellm_routes import router as litellm_router
 
     register_static_routes(app)
@@ -116,4 +117,5 @@ def register_routers(app):
     app.include_router(agent_router)
     app.include_router(metrics_router)
     app.include_router(terminal_router)
+    app.include_router(terminal_alias_router)
     app.include_router(litellm_router)  # catch-all，必须最后

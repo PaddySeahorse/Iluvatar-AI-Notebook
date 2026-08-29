@@ -214,7 +214,9 @@ function addInitialCells() {
     state.cells.push({
         id: 'cell_' + Math.random().toString(36).substr(2, 9),
         type: 'code',
-        content: `# 导入数学包，在天数智芯 GPU 上模拟一段随机计算并生成绘图
+        content: `# 导入数学包，在天数智芯 GPU 上模拟随机计算并绘图
+# 提示：绘图必须以 plt.show() 或 display(fig) 结束才会捕获为 display_data；
+# 仅 plt.savefig("/tmp/x.png") 不会显示在输出区，请用 plt.show()。
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -222,11 +224,11 @@ print("正在初始化天数智芯 BI-150 运算环境...")
 x = np.linspace(0, 10, 100)
 y = np.sin(x) * np.exp(-x/3)
 
-# 打印变量，这些变量可以在下一个单元格中访问
+# 打印变量，这些变量可在下一个单元格中访问
 total_points = len(x)
 print(f"成功计算了 {total_points} 个数据点。")
 
-# 绘图
+# 绘图（务必调用 plt.show() 才会内嵌显示）
 plt.figure(figsize=(7, 3.5))
 plt.plot(x, y, label='Loss Curve (BI-150)', color='#00f2fe', linewidth=2)
 plt.title("Iluvatar GPU Simulated Training Loss")
@@ -1052,20 +1054,30 @@ function setKernelStatus(statusClass, text) {
 let gpuTelemetryInterval = null;
 
 function startGpuTelemetry() {
-    // First fetch to check if GPU is available
     fetchGpuStatus()
         .then(data => {
+            const gpuDashboard = document.getElementById('gpuDashboard');
             if (!data.gpu_available) {
-                // No GPU detected, keep dashboard and modal hidden
+                if (gpuDashboard) {
+                    gpuDashboard.style.display = '';
+                    gpuDashboard.classList.add('no-gpu');
+                    gpuDashboard.title = '未检测到天数智芯 GPU 驱动（pynvml 不可用），遥测已降级为占位数据';
+                    const utilVal = document.getElementById('gpuUtilVal');
+                    const vramVal = document.getElementById('gpuVramVal');
+                    const powerVal = document.getElementById('gpuPowerVal');
+                    const tempVal = document.getElementById('gpuTempVal');
+                    if (utilVal) utilVal.innerText = '--';
+                    if (vramVal) vramVal.innerText = '无 GPU';
+                    if (powerVal) powerVal.innerText = '--';
+                    if (tempVal) tempVal.innerText = '--';
+                }
                 return;
             }
-
-            // GPU available, show dashboard and start periodic updates
-            const gpuDashboard = document.getElementById('gpuDashboard');
-            if (gpuDashboard) gpuDashboard.style.display = '';
-            
+            if (gpuDashboard) {
+                gpuDashboard.style.display = '';
+                gpuDashboard.classList.remove('no-gpu');
+            }
             updateGpuDisplay(data);
-            
             gpuTelemetryInterval = setInterval(() => {
                 fetchGpuStatus()
                     .then(updateGpuDisplay)
