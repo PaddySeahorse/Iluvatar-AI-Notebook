@@ -490,21 +490,6 @@ async function refreshNotebooksListFromServer() {
 }
 
 // Bind Global UI Elements
-function deriveLitellmUiUrl(url) {
-    // External networks can only reach the Flask port, so the WebUI is
-    // consumed same-origin through the backend's reverse proxy.
-    return '/ui/';
-}
-
-function refreshLitellmUiUrl() {
-    const el = document.getElementById('litellmUiUrl');
-    if (el) {
-        el.textContent = deriveLitellmUiUrl();
-        el.title = '经应用端口反向代理的同源地址';
-    }
-    return deriveLitellmUiUrl();
-}
-
 function setupEventListeners() {
     const refreshVarsBtn = document.getElementById('refreshVarsBtn');
     if (refreshVarsBtn) {
@@ -682,17 +667,86 @@ function setupEventListeners() {
         activeEditors.forEach(editor => {
             editor.setOption('theme', cmTheme);
         });
+        if (configFileCm) {
+            configFileCm.setOption('theme', cmTheme);
+        }
     });
 
     // Settings Modal
     const settingsModal = document.getElementById('settingsModal');
     const apiUrlInput = document.getElementById('apiUrlInput');
-    const litellmUiFrameWrap = document.getElementById('litellmUiFrameWrap');
-    const litellmUiFrame = document.getElementById('litellmUiFrame');
+    const advancedModeToggle = document.getElementById('advancedModeToggle');
+    const basicConfigView = document.getElementById('basicConfigView');
+    const advancedConfigView = document.getElementById('advancedConfigView');
+
+    let configFileCm = null;
+
+    function isAdvancedMode() {
+        return advancedModeToggle.checked;
+    }
+
+    function buildDefaultConfigText(url, model) {
+        return [
+            `saved_at: ${new Date().toISOString()}`,
+            'config:',
+            `  OPENI_API_URL: ${url}`,
+            "  OPENI_API_TOKEN: ''",
+            `  OPENI_API_MODEL: ${model}`,
+            "  USE_ILUVATAR_PROVISIONER: 'false'",
+            "  USE_OPENAI_SDK: 'false'",
+        ].join('\n') + '\n';
+    }
+
+    // Lazily create the shared CodeMirror editor for the advanced view using
+    // the project's locally-vendored CodeMirror (window.CodeMirror UMD global).
+    function getConfigFileEditor() {
+        if (configFileCm) return configFileCm;
+        const isDark = document.body.classList.contains('light-theme');
+        configFileCm = CodeMirror(document.getElementById('configEditorContainer'), {
+            value: '',
+            lineNumbers: true,
+            indentUnit: 2,
+            viewportMargin: Infinity,
+            theme: isDark ? 'neo' : 'dracula',
+        });
+        return configFileCm;
+    }
+
+    async function refreshConfigFileEditor() {
+        let content = '';
+        try {
+            const res = await fetch('/api/config_file');
+            const data = res.ok ? await res.json() : {};
+            content = data.exists ? data.content : '';
+        } catch (e) {
+            console.error('Failed to load config file:', e);
+        }
+        getConfigFileEditor().setValue(content);
+    }
+
+    // Restore persisted advanced-mode toggle state, then show the matching view
+    // (the advanced view is an independent CodeMirror editor, not the basic form).
+    advancedModeToggle.checked = localStorage.getItem('openi_advanced_mode') === '1';
+    basicConfigView.hidden = advancedModeToggle.checked;
+    advancedConfigView.hidden = !advancedModeToggle.checked;
+
+    advancedModeToggle.addEventListener('change', () => {
+        const on = advancedModeToggle.checked;
+        localStorage.setItem('openi_advanced_mode', on ? '1' : '0');
+        basicConfigView.hidden = on;
+        if (on) {
+            advancedConfigView.hidden = false;
+            refreshConfigFileEditor();
+        } else {
+            advancedConfigView.hidden = true;
+        }
+    });
 
     document.getElementById('settingsBtn').addEventListener('click', () => {
         settingsModal.classList.add('open');
-        refreshLitellmUiUrl();
+        if (isAdvancedMode()) {
+            refreshConfigFileEditor();
+        }
     });
     document.getElementById('closeSettingsBtn').addEventListener('click', () => {
         settingsModal.classList.remove('open');
@@ -708,22 +762,33 @@ function setupEventListeners() {
             icon.className = 'fa-solid fa-eye';
         }
     });
-    apiUrlInput.addEventListener('input', refreshLitellmUiUrl);
-
-    document.getElementById('openLitellmUiBtn').addEventListener('click', () => {
-        window.open(deriveLitellmUiUrl(), '_blank', 'noopener');
-    });
-
-    document.getElementById('toggleLitellmUiBtn').addEventListener('click', () => {
-        const uiUrl = deriveLitellmUiUrl();
-        const willShow = litellmUiFrameWrap.hidden;
-        litellmUiFrameWrap.hidden = !willShow;
-        if (willShow && litellmUiFrame.src !== uiUrl) {
-            litellmUiFrame.src = uiUrl;
-        }
-    });
-
     document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+        if (isAdvancedMode()) {
+            let success = false;
+            let message = 'config.yaml 已保存并应用';
+            try {
+                const res = await fetch('/api/config_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: getConfigFileEditor().getValue() }),
+                });
+                const data = await res.json().catch(() => ({}));
+                success = res.ok;
+                if (!success) {
+                    message = data.message || `写入失败（HTTP ${res.status}）`;
+                } else if (data.message) {
+                    message = data.message;
+                }
+            } catch (e) {
+                message = '写入服务器配置文件失败: ' + e.message;
+            }
+            if (success) {
+                settingsModal.classList.remove('open');
+            }
+            showFloatingNotification(message);
+            return;
+        }
+
         const url = apiUrlInput.value.trim();
         const token = document.getElementById('apiTokenInput').value.trim();
         const model = document.getElementById('modelInput').value.trim();
@@ -743,6 +808,9 @@ function setupEventListeners() {
                 document.getElementById('apiUrlInput').value = data.default_url;
                 document.getElementById('apiTokenInput').value = '';
                 document.getElementById('modelInput').value = data.default_model;
+                if (isAdvancedMode()) {
+                    getConfigFileEditor().setValue(buildDefaultConfigText(data.default_url, data.default_model));
+                }
             });
     });
 
@@ -1706,7 +1774,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (apiEl) apiEl.value = config.url;
         if (tokenEl) tokenEl.value = config.token;
         if (modelEl) modelEl.value = config.model;
-        refreshLitellmUiUrl();
 
         // 2. Fetch server notebooks list and load active notebook
         fetchNotebooksList()

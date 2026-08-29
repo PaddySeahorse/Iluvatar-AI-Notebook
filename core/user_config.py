@@ -93,6 +93,29 @@ def save_model_config(url, token, model):
     return path
 
 
+def read_raw_config_content():
+    """Return the raw ``config.yaml`` text, or ``''`` when absent/unreadable."""
+    try:
+        with open(get_config_path(), 'r', encoding='utf-8') as f:
+            return f.read()
+    except OSError:
+        return ''
+
+
+def write_raw_config_content(content):
+    """Persist raw ``config.yaml`` text verbatim (mode ``0600``); return path.
+
+    Raises ``OSError`` on filesystem failure.
+    """
+    os.makedirs(get_config_dir(), exist_ok=True)
+    path = get_config_path()
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    os.chmod(path, 0o600)
+    logger.info('user_config_file_written', extra={'path': path})
+    return path
+
+
 def apply_saved_config():
     """Startup hook: seed or restore ``config.yaml``, filling ``os.environ``.
 
