@@ -27,6 +27,14 @@
         .embed-mode #openSidebarFloatingBtn {
             display: none !important;
         }
+        .embed-mode #gpuDashboard {
+            display: none !important;
+        }
+        @media (max-width: 900px) {
+            #gpuDashboard .hide-mobile { display: none; }
+            .top-nav { gap: 8px; }
+        }
+        #gpuDashboard.no-gpu { opacity: 0.6; pointer-events: auto; }
     </style>
 </head>
 <body class="dark-theme">

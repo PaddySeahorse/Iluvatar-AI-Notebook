@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+terminal_alias_router = APIRouter()
+
 def _sess_to_api(s):
     return {
         "id": s.id,
@@ -87,6 +89,14 @@ async def delete_terminal(terminal_id: str, request: Request):
     except KeyError:
         return JSONResponse({"error": True, "error_code": "NOT_FOUND", "message": "terminal not found"}, status_code=404)
     return {"success": True}
+
+@terminal_alias_router.post("/api/terminal/create")
+async def alias_create_terminal(request: Request):
+    return await create_terminal(request)
+
+@terminal_alias_router.get("/api/terminal/list")
+async def alias_list_terminals(request: Request):
+    return await list_terminals(request)
 
 @router.websocket("/ws/terminals/{terminal_id}")
 async def ws_terminal(websocket: WebSocket, terminal_id: str):

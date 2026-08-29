@@ -80,11 +80,13 @@ async def lifespan(app: FastAPI):
             url = (os.environ.get('OPENI_API_URL') or app_state.DEFAULT_API_URL or '').strip()
             token = (os.environ.get('OPENI_API_TOKEN') or app_state.DEFAULT_API_TOKEN or '').strip()
             model = (os.environ.get('OPENI_API_MODEL') or app_state.DEFAULT_API_MODEL or '').strip()
-            if url and model:
+            if url and model and token:
                 try:
                     write_config(url, token, model)
                 except OSError as e:
                     logger.warning('litellm_bootstrap_failed', extra={'error': str(e)})
+            elif url and model:
+                logger.info('litellm_bootstrap_skipped_missing_token', extra={'url': url, 'model': model})
 
     try:
         await run_in_threadpool(_bootstrap_litellm)
