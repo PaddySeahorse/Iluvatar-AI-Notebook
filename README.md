@@ -57,7 +57,8 @@
 │   ├── context.py         # 结构化上下文构建器（变量表 / 最近 Out / 最近错误栈）
 │   ├── tools.py           # ReAct Agent 工具注册表与执行（run_cell / 变量 / 文件 / GPU / 内核状态）
 │   ├── agent.py           # 轻量 ReAct 循环（function calling + 文本 JSON 双协议）
-│   ├── llm.py             # LLM 传输层：优先 LiteLLM，未安装时降级为原生 requests
+│   ├── llm.py             # LLM 传输层：OpenAI SDK / requests 固定请求本地 LiteLLM Proxy
+│   ├── litellm_manager.py # 本地 LiteLLM Proxy 生命周期管理（自启动/配置路由/重启/停止）
 │   ├── gpu.py             # 天数智芯 GPU 遥测（pynvml / IXUCA SDK）
 │   ├── iluvatar_provisioner.py  # 自定义 KernelProvisioner，GPU 资源分配与专用中断
 │   ├── utils.py           # 通用工具（is_safe_path 路径校验）
@@ -130,10 +131,10 @@
 pip install flask flask-cors matplotlib requests pynvml pytest
 ```
 
-> **LLM 传输层 — OpenAI SDK → LiteLLM Proxy**：LLM 调用通过官方 `openai` Python SDK 访问 LiteLLM Proxy（OpenAI 兼容网关），获得超时、重试与限流/鉴权错误分类；未安装 `openai` 包时透明降级为原生 `requests`，无需任何代码改动。
+> **LLM 传输层 — OpenAI SDK → 自托管 LiteLLM Proxy**：请求地址在代码中**写死为本地 LiteLLM Proxy**（`http://localhost:4000/v1`，可通过 `LITELLM_PROXY_URL` 覆盖）。应用启动时自动拉起 Proxy（`pip install "litellm[proxy]"`），它再根据设置面板保存的**上游模型 API 配置**把请求转发给真实模型；代理接管超时、重试与限流/鉴权错误分类。未安装 `openai` 包时透明降级为原生 `requests` 直连同一本地代理。
 >
 > ```bash
-> pip install openai
+> pip install openai "litellm[proxy]"
 > ```
 >
 > 可用 `USE_OPENAI_SDK=0` 强制禁用（`USE_OPENAI_SDK=1` 强制启用；不设置时自动检测）。
@@ -175,13 +176,17 @@ pip install flake8
 通过环境变量预设以下配置（首次启动时会作为种子写入 `~/.Iluvatar-AI-Notebook/config.yaml`）：
 
 ```env
+# 上游模型提供方的 OpenAI 兼容端点（供本地 LiteLLM Proxy 路由）
 OPENI_API_URL=https://token.openi.org.cn/v1/chat/completions
 OPENI_API_TOKEN=your_api_token_here
 OPENI_API_MODEL=dsv4
+
+# 可选：本地 LiteLLM Proxy 地址（OpenAI SDK 固定请求此地址）
+# LITELLM_PROXY_URL=http://localhost:4000
 ```
 
 也可以在启动后通过 **UI 设置面板**配置（右上角「设置」）：
-填写 LiteLLM Proxy 地址 / Token / Model 后点击「保存」，配置会**自动写入宿主机用户目录的 `~/.Iluvatar-AI-Notebook/config.yaml`**（同时同步运行时默认值，无需重启），并保存在浏览器 localStorage；下次启动时自动从该文件恢复。设置面板内嵌 **LiteLLM Proxy 原生管理台**入口（新窗口打开 / 页内预览），地址由 API URL 自动推导（`<origin>/ui/`），可在其中管理模型路由、虚拟密钥与用量。
+填写**上游模型 API 配置**（真实模型提供方的 Base URL / API Key / 模型名）后点击「保存」，配置会**自动写入宿主机用户目录的 `~/.Iluvatar-AI-Notebook/config.yaml`**（同时同步运行时默认值，无需重启）并**写入本地 LiteLLM Proxy 的路由配置、立即生效**，且保存在浏览器 localStorage；下次启动时自动从该文件恢复并自启动 LiteLLM Proxy。OpenAI SDK 始终请求 `http://localhost:4000/v1`，设置面板内嵌 **LiteLLM Proxy 原生管理台**入口（新窗口打开 / 页内预览，同源 `<origin>/ui/`），可在其中管理模型路由、虚拟密钥与用量。
 
 如需限制跨域来源，可额外配置：
 
@@ -195,6 +200,7 @@ ALLOWED_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
 
 ```bash
 # 启动 FastAPI 统一入口（Notebook / + /api/* + Chainlit /agent）
+# 应用启动时自动拉起本地 LiteLLM Proxy（localhost:4000；首次启动需已在上游配置里保存过模型路由）
 python app_fastapi.py
 
 # 等价于上面的 uvicorn 命令

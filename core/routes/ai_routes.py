@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from core import llm as llm_transport
 from core.errors import UpstreamAPIError
+from core.litellm_manager import litellm_manager
 from core.routes import json_body, state
 from core.user_config import save_model_config
 
@@ -33,15 +34,19 @@ async def get_config(request: Request):
 
 @router.post('/api/save_config')
 async def save_config(request: Request):
-    """Persist the user-provided LLM API config on the host machine.
+    """Persist the LiteLLM upstream model API config on the host machine.
 
     Request: ``{"url": "...", "token": "...", "model": "..."}``
 
-    The values are written to the ``OPENI_API_URL`` / ``OPENI_API_TOKEN`` /
-    ``OPENI_API_MODEL`` keys of ``~/.Iluvatar-AI-Notebook/config.yaml``
-    (other tracked keys are preserved), and the in-memory runtime defaults +
-    ``os.environ`` are updated at the same time so the new config takes
-    effect without a restart.
+    The values describe the **upstream model endpoint** that the self-hosted
+    LiteLLM Proxy must route to (the OpenAI SDK always talks to the local
+    proxy, never to this address directly). They are written to the
+    ``OPENI_API_URL`` / ``OPENI_API_TOKEN`` / ``OPENI_API_MODEL`` keys of
+    ``~/.Iluvatar-AI-Notebook/config.yaml`` (other tracked keys are preserved),
+    the in-memory runtime defaults + ``os.environ`` are updated at the same
+    time so the new config takes effect without a restart, and the local
+    LiteLLM Proxy's ``model_list`` is rewritten + the proxy bounced so the new
+    route is live immediately.
     """
     s = state(request)
     data = await json_body(request)
@@ -78,6 +83,9 @@ async def save_config(request: Request):
     os.environ['OPENI_API_URL'] = url
     os.environ['OPENI_API_TOKEN'] = token
     os.environ['OPENI_API_MODEL'] = model
+
+    # Rewrite the local LiteLLM Proxy's model route; blocking I/O off-loop.
+    await run_in_threadpool(litellm_manager.sync_config, url, token, model)
 
     return {'ok': True, 'message': 'API 配置已保存'}
 

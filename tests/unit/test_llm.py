@@ -15,10 +15,14 @@ from core.llm import LLMError, chat_nostream, chat_stream, probe_tool_support
 # normalization helpers
 # ---------------------------------------------------------------------------
 
-def test_to_api_base_strips_chat_suffix():
-    assert llm_module._to_api_base('https://x.com/v1/chat/completions') == 'https://x.com/v1'
-    assert llm_module._to_api_base('https://x.com/v1/') == 'https://x.com/v1'
-    assert llm_module._to_api_base('https://x.com') == 'https://x.com'
+def test_to_api_base_pins_local_litellm():
+    base = llm_module.LITELLM_PROXY_URL.rstrip('/')
+    expected = base if base.endswith('/v1') else f'{base}/v1'
+    # Every backend is pinned to the self-hosted proxy regardless of the
+    # upstream config passed in.
+    assert llm_module._to_api_base('https://x.com/v1/chat/completions') == expected
+    assert llm_module._to_api_base('https://x.com/v1/') == expected
+    assert llm_module._to_api_base('https://x.com') == expected
 
 
 def test_normalize_tool_calls():
@@ -55,7 +59,7 @@ def test_requests_nostream_success(monkeypatch):
     out = chat_nostream('http://x/v1/chat/completions', 'tok', 'dsv4', [{'role': 'user', 'content': 'hi'}],
                         tools=None, backend='requests')
     assert out == {'content': 'hi', 'tool_calls': None}
-    assert captured['url'] == 'http://x/v1/chat/completions'
+    assert captured['url'] == llm_module._LITELLM_CHAT_ENDPOINT
     assert captured['payload']['model'] == 'dsv4'
     assert captured['headers']['Authorization'] == 'Bearer tok'
 
@@ -197,13 +201,24 @@ def test_openai_nostream_success(monkeypatch):
     fake.completion_response = _mk_nostream_response(content='hi from proxy')
     monkeypatch.setattr(llm_module, 'openai', fake)
 
-    out = chat_nostream('https://proxy.example/v1/chat/completions', 'tok', 'dsv4',
+    out = chat_nostream('https://upstream.example/v1', 'tok', 'dsv4',
                         [{'role': 'user', 'content': 'hi'}], backend='openai')
     assert out == {'content': 'hi from proxy', 'tool_calls': None}
     client = fake.clients[0]
-    assert client.base_url == 'https://proxy.example/v1'
+    # The SDK always talks to the self-hosted LiteLLM Proxy, never to the
+    # upstream config passed in.
+    assert client.base_url == llm_module.LITELLM_PROXY_URL + '/v1'
     assert client.api_key == 'tok'
     assert fake.call_kwargs['model'] == 'dsv4'
+
+
+def test_openai_nostream_ignores_upstream_url(monkeypatch):
+    fake = _OpenAIFake()
+    fake.completion_response = _mk_nostream_response(content='ok')
+    monkeypatch.setattr(llm_module, 'openai', fake)
+
+    chat_nostream('https://farfaraway.example/v2', '', 'm', [], backend='openai')
+    assert fake.clients[0].base_url == llm_module.LITELLM_PROXY_URL + '/v1'
 
 
 def test_openai_nostream_tool_calls(monkeypatch):

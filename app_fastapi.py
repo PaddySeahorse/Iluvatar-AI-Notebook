@@ -40,6 +40,7 @@ from core.observability import (
     new_trace_id,
     set_trace_id,
 )
+from core.litellm_manager import get_litellm_config_path, litellm_manager, write_config
 from core.routes import register_error_handlers, register_routers
 from core.state import app_state
 from core.user_config import apply_saved_config
@@ -56,6 +57,17 @@ configure_logging(level=_log_level)
 
 # 从 ~/.Iluvatar-AI-Notebook/config.yaml 恢复（首次运行自环境种子化）
 apply_saved_config()
+# state.py 的 DEFAULT_API_* 模块常量在 env 恢复前已初始化；配置恢复进
+# os.environ 后把运行时默认值同步为已保存值，get_config / agent 默认请求
+# 才会使用用户保存的上游模型（而非模块默认）。
+for _key in ('OPENI_API_URL', 'OPENI_API_TOKEN', 'OPENI_API_MODEL'):
+    _saved = os.environ.get(_key)
+    if _saved:
+        setattr(
+            app_state,
+            'DEFAULT_API_' + _key.replace('OPENI_API_', ''),
+            _saved,
+        )
 
 
 def _cleanup_gpu():
@@ -78,6 +90,23 @@ async def lifespan(app: FastAPI):
     """
     await run_in_threadpool(app_state.kernel_manager.warm_start)
 
+    def _bootstrap_litellm():
+        if not os.path.exists(get_litellm_config_path()):
+            url = (os.environ.get('OPENI_API_URL') or app_state.DEFAULT_API_URL or '').strip()
+            token = (os.environ.get('OPENI_API_TOKEN') or app_state.DEFAULT_API_TOKEN or '').strip()
+            model = (os.environ.get('OPENI_API_MODEL') or app_state.DEFAULT_API_MODEL or '').strip()
+            if url and model:
+                try:
+                    write_config(url, token, model)
+                except OSError as e:
+                    logger.warning('litellm_bootstrap_failed', extra={'error': str(e)})
+
+    try:
+        await run_in_threadpool(_bootstrap_litellm)
+        await run_in_threadpool(litellm_manager.ensure_running)
+    except Exception:  # noqa: BLE001
+        logger.warning('litellm_autostart_failed', exc_info=True)
+
     # pynvml / watchdog 清理（脚本级启动时保证退出干净）
     atexit.register(_cleanup_gpu)
     atexit.register(app_state.kernel_manager.stop_watchdog)
@@ -93,6 +122,7 @@ async def lifespan(app: FastAPI):
             await app_state.terminal_manager.shutdown_all()
         except Exception:
             pass
+        litellm_manager.shutdown()
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,14 @@
-"""LLM transport layer via the OpenAI SDK against a LiteLLM proxy.
+"""LLM transport layer via the OpenAI SDK against the local LiteLLM Proxy.
 
-The ReAct agent talks to a LiteLLM proxy (an OpenAI-compatible gateway).
-This module wraps that call in a single transport API using the official
-``openai`` Python SDK:
+The ReAct agent talks to the LightLLM Proxy this notebook self-hosts on
+``LITELLM_PROXY_URL`` (default ``http://localhost:4000``) — the proxy is the
+OpenAI-compatible gateway that forwards each call to the real upstream model
+API configured in the settings panel. This module wraps that local call in a
+single transport API using the official ``openai`` Python SDK:
 
+- The request address is **hard-coded** to the local proxy; the ``url``
+  argument accepted by the public functions is the *upstream model config*
+  known to the proxy and is never used to build the network request.
 - The OpenAI SDK handles retries, timeouts and a normalized error surface
   when talking to the proxy's ``/chat/completions`` endpoint.
 - A plain ``requests`` path stays as a zero-dependency fallback so the app
@@ -18,9 +23,6 @@ Both backends return identical, normalized shapes:
 The active backend is chosen by: explicit ``backend=`` argument > ``USE_OPENAI_SDK``
 env var (``1``/``true``/``yes`` enables, ``0``/``false``/``no`` disables) >
 auto-detect (OpenAI SDK if importable, otherwise requests).
-
-The stored endpoint may be a full chat URL; a trailing ``/chat/completions``
-is stripped so the SDK can append it to ``base_url`` itself.
 """
 
 import json
@@ -35,12 +37,17 @@ except Exception:  # pragma: no cover - depends on environment
     openai = None
     OPENAI_AVAILABLE = False
 
+from core.litellm_manager import LITELLM_PROXY_URL
+
 _REQUESTS_TIMEOUT = 60
 _STREAM_TIMEOUT = 180
 
-# OpenAI-compatible base URL normalization: the SDK appends ``/chat/completions``
-# to ``base_url``, while the app historically stored the full endpoint URL.
-_CHAT_SUFFIXES = ('/chat/completions',)
+# The transport never dials the upstream model endpoint directly: every
+# request (OpenAI SDK ``/v1`` and plain ``requests``) is aimed at the local
+# LiteLLM Proxy, which routes to the real model using its own ``model_list``
+# config.
+_LITELLM_API_BASE = f'{LITELLM_PROXY_URL}/v1'
+_LITELLM_CHAT_ENDPOINT = f'{LITELLM_PROXY_URL}/v1/chat/completions'
 
 
 class LLMError(Exception):
@@ -62,12 +69,14 @@ def is_openai_sdk_enabled() -> bool:
 
 
 def _to_api_base(url: str) -> str:
-    """Strip a trailing ``/chat/completions`` so the SDK can append it again."""
-    base = (url or '').strip().rstrip('/')
-    for suffix in _CHAT_SUFFIXES:
-        if base.endswith(suffix):
-            return base[: -len(suffix)]
-    return base
+    """Return the local LiteLLM Proxy OpenAI-compatible base URL.
+
+    The ``url`` argument (the upstream model config) is intentionally ignored:
+    the transport is pinned to the self-hosted proxy so client code can keep
+    threading the upstream config through without affecting where the request
+    is actually sent.
+    """
+    return _LITELLM_API_BASE
 
 
 def _normalize_tool_calls(message) -> list | None:
@@ -205,7 +214,7 @@ def _requests_nostream(url, token, model, messages, tools=None, timeout=_REQUEST
         payload['tools'] = tools
         payload['tool_choice'] = 'auto'
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        resp = requests.post(_LITELLM_CHAT_ENDPOINT, headers=headers, json=payload, timeout=timeout)
     except requests.exceptions.ConnectionError as e:
         raise LLMError(f'无法连接 API 服务: {e}') from e
     except requests.exceptions.Timeout as e:
@@ -234,7 +243,7 @@ def _requests_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
         headers['Authorization'] = f'Bearer {token}'
     payload = {'model': model, 'messages': messages, 'temperature': 0.7, 'stream': True}
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=timeout, stream=True)
+        resp = requests.post(_LITELLM_CHAT_ENDPOINT, headers=headers, json=payload, timeout=timeout, stream=True)
     except requests.exceptions.RequestException as e:
         raise LLMError(f'API 流式请求失败: {e}') from e
     if resp.status_code != 200:
@@ -281,7 +290,7 @@ def _requests_probe(url, token, model) -> bool:
         'tool_choice': 'none',
     }
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=_REQUESTS_TIMEOUT)
+        resp = requests.post(_LITELLM_CHAT_ENDPOINT, headers=headers, json=payload, timeout=_REQUESTS_TIMEOUT)
         if resp.status_code != 200:
             return False
         return 'choices' in resp.json()
