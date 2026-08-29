@@ -218,7 +218,7 @@ export async function fetchKernelVariables() {
     return await res.json();
 }
 
-// Request code completion (Tab) from kernel — P3
+// Request code completion (Tab) from kernel
 // Returns { matches, cursor_start, cursor_end, metadata } (empty matches on failure).
 export async function completeOnBackend(code, cursorPos) {
     const res = await fetch('/api/complete', {
@@ -230,7 +230,7 @@ export async function completeOnBackend(code, cursorPos) {
     return await res.json();
 }
 
-// Request object introspection (? / ??) from kernel — P3
+// Request object introspection (? / ??) from kernel
 // Returns { found, data, metadata } (found=false on failure).
 export async function inspectOnBackend(code, cursorPos, detailLevel = 0) {
     const res = await fetch('/api/inspect', {

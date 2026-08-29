@@ -933,7 +933,7 @@ function setupEventListeners() {
     });
 }
 
-// Execute Python Code Kernel Route (P2: SSE streaming with auto fallback)
+// Execute Python Code Kernel Route (SSE streaming with auto fallback)
 function runCell(id) {
     const cell = state.cells.find(c => c.id === id);
     if (!cell || cell.type !== 'code') return;

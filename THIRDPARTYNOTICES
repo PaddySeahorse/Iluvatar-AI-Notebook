@@ -59,11 +59,23 @@ THE SOFTWARE.
 
 ## 后端依赖（Python）
 
+### FastAPI
+
+- 许可证：MIT
+- 网站：https://fastapi.tiangolo.com
+- 用途：ASGI 统一入口框架（`app_fastapi.py`）
+
+### Uvicorn
+
+- 许可证：BSD-3-Clause
+- 网站：https://www.uvicorn.org
+- 用途：ASGI 服务器
+
 ### Flask
 
 - 许可证：BSD-3-Clause
 - 网站：https://flask.palletsprojects.com
-- 用途：Web 应用框架
+- 用途：薄壳兼容（`app.py` 转发）
 
 ### Flask-CORS
 
@@ -71,26 +83,56 @@ THE SOFTWARE.
 - 网站：https://github.com/corydolphin/flask-cors
 - 用途：跨域资源共享支持
 
-### matplotlib
+### jupyter_client / ipykernel / IPython / nbformat / pyzmq
 
-- 许可证：PSF-based
-- 网站：https://matplotlib.org
-- 用途：数据可视化与图表生成
+- 许可证：BSD-3-Clause
+- 网站：https://jupyter.org
+- 用途：内核管理、ZMQ 五通道、代码执行与 nbformat 持久化
 
 ### requests
 
 - 许可证：Apache 2.0
 - 网站：https://requests.readthedocs.io
-- 用途：HTTP 请求库
+- 用途：HTTP 请求库（LLM 兜底传输）
+
+### openai
+
+- 许可证：Apache 2.0
+- 网站：https://github.com/openai/openai-python
+- 用途：OpenAI SDK 传输层（固定请求本地 LiteLLM Proxy）
+
+### PyYAML
+
+- 许可证：MIT
+- 网站：https://pyyaml.org
+- 用途：`~/.Iluvatar-AI-Notebook/config.yaml` 与 `litellm_config.yaml` 读写
+
+### litellm[proxy]
+
+- 许可证：MIT
+- 网站：https://github.com/BerriAI/litellm
+- 用途：本地 OpenAI 兼容网关（`localhost:4000` 自托管）
+
+### matplotlib
+
+- 许可证：PSF-based
+- 网站：https://matplotlib.org
+- 用途：数据可视化与图表捕获
+
+### Chainlit
+
+- 许可证：Apache 2.0
+- 网站：https://chainlit.io
+- 用途：`/agent` 聊天界面（mount_chainlit）
 
 ### pynvml
 
 - 许可证：MIT
 - 网站：https://pypi.org/project/pynvml
-- 用途：GPU 监控与管理
+- 用途：GPU 监控与管理（可选）
 
-### pytest
+### pytest / pytest-asyncio / pytest-mock
 
-- 许可证：MIT
+- 许可证：MIT / Apache 2.0 / MIT
 - 网站：https://pytest.org
-- 用途：测试框架
+- 用途：单元/集成测试框架

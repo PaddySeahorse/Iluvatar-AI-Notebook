@@ -1,4 +1,4 @@
-// Unit tests for the pure helpers exported from static/js/inspect.js (P3).
+// Unit tests for the pure helpers exported from static/js/inspect.js.
 //
 // Run with: node --test tests/js/inspect.test.mjs
 //

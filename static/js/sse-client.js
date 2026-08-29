@@ -1,4 +1,4 @@
-// SSE streaming kernel client for Iluvatar AI Notebook (P2 frontend adaptation).
+// SSE streaming kernel client for Iluvatar AI Notebook.
 //
 // Wraps fetch + ReadableStream to the /api/run_cell_stream SSE endpoint,
 // parses Jupyter-style messages, and dispatches them to callbacks for

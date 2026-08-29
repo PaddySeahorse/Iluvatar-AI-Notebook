@@ -1,9 +1,8 @@
 # requirements.txt — Iluvatar AI Notebook
 #
-# 依赖来源：docs/plan/dependency-management.md（P1 阶段），
-# 并按代码库实际导入裁剪（lint_routes 使用 stdlib ast，无需 pylint；
+# 按代码库实际导入裁剪（lint_routes 使用 stdlib ast，无需 pylint；
 # python-dotenv 未使用，app.py 手动解析 .env）。
-# 方案三（统一 ASGI 入口）：主框架迁移为 FastAPI + uvicorn + Chainlit。
+# 统一 ASGI 入口：主框架为 FastAPI + uvicorn + Chainlit。
 
 # ── Web 框架 ──────────────────────────────────────
 fastapi>=0.110
@@ -11,7 +10,7 @@ uvicorn>=0.27
 Flask>=3.0            # 仅保留：app.py 薄壳与旧启动方式向后兼容
 flask-cors>=4.0
 
-# ── Jupyter 内核生态（P0/P1 新增，核心）────────────
+# ── Jupyter 内核生态（核心）────────────────────
 jupyter_client>=8.0
 ipykernel>=6.25
 ipython>=8.0

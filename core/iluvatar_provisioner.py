@@ -1,4 +1,4 @@
-"""Iluvatar GPU kernel provisioner (P4).
+"""Iluvatar GPU kernel provisioner.
 
 Extends :class:`jupyter_client.provisioning.LocalProvisioner` to deep-integrate
 Iluvatar (天数智芯) GPU resource management into the kernel lifecycle:
@@ -22,7 +22,7 @@ point (see ``pyproject.toml``) and referenced by
 :func:`register_provisioner` at startup to inject it into the
 ``KernelProvisionerFactory`` cache programmatically.
 
-Design reference: docs/design/kernel-refactoring-design.md §3.3
+Design reference: kernel-refactoring-design §3.3
 """
 
 import asyncio

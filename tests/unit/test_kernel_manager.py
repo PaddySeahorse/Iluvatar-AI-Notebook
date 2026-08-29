@@ -1,8 +1,7 @@
-"""Unit tests for core.kernel.KernelManager (P1 + P3).
+"""Unit tests for core.kernel.KernelManager.
 
 Covers lifecycle, synchronous execution, streaming execution, interrupt,
-variables, watchdog (P1) and the complete/inspect shell-channel helpers (P3)
-defined in docs/plan/testing-and-rollout.md.
+variables, watchdog and the complete/inspect shell-channel helpers.
 
 Tests mock ``jupyter_client`` so no real ipykernel subprocess is spawned.
 """
@@ -513,7 +512,7 @@ class TestKernelManagerWatchdog:
 
 
 # --------------------------------------------------------------------------- #
-#  Completion (P3)                                                             #
+#  Completion                                                                 #
 # --------------------------------------------------------------------------- #
 
 class TestKernelManagerComplete:
@@ -613,7 +612,7 @@ class TestKernelManagerComplete:
 
 
 # --------------------------------------------------------------------------- #
-#  Inspection (P3)                                                             #
+#  Inspection                                                                 #
 # --------------------------------------------------------------------------- #
 
 class TestKernelManagerInspect:

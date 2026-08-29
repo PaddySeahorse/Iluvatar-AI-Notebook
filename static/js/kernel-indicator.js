@@ -1,9 +1,8 @@
-// Kernel status indicator for Iluvatar AI Notebook (P2 frontend adaptation).
+// Kernel status indicator for Iluvatar AI Notebook.
 //
 // Wraps the top-nav `.kernel-status` block (a status dot + status text) and
 // exposes a small setState() API so callers (main.js) don't poke the DOM
-// directly. State names follow docs/plan/frontend-adaptation-plan.md and are
-// mapped onto the existing CSS classes from style.css:
+// directly. State names are mapped onto the existing CSS classes from style.css:
 //   idle         -> .status-dot.online   (kernel ready)
 //   busy         -> .status-dot.busy     (executing)
 //   error        -> .status-dot.error    (execution / connection error)

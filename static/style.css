@@ -691,7 +691,7 @@ body {
     background-color: rgba(0, 0, 0, 0.02);
 }
 
-/* Streaming output: execute_result Out[N] label (P2) */
+/* Streaming output: execute_result Out[N] label */
 .output-result {
     display: flex;
     flex-direction: column;
@@ -706,7 +706,7 @@ body {
     font-weight: 600;
 }
 
-/* Streaming output: error block (P2) */
+/* Streaming output: error block */
 .output-error-block {
     background: rgba(239, 68, 68, 0.08);
     border-left: 3px solid var(--error);
@@ -2195,7 +2195,7 @@ body {
 }
 
 /* ============================================================
-   P3: Completion Popup (Tab completion) & Inspect Panel (? doc)
+   Completion Popup (Tab completion) & Inspect Panel (? doc)
    ============================================================ */
 
 /* --- Completion Popup --- */

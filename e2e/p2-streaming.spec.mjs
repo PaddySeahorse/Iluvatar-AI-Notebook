@@ -1,11 +1,10 @@
-// P2 streaming E2E suite — uses Playwright + Google Chrome.
+// Streaming E2E suite — uses Playwright + Google Chrome.
 //
-// Spins up nothing itself: the Flask backend on http://127.0.0.1:5000 must
+// Spins up nothing itself: the backend on http://127.0.0.1:5000 must
 // already be running (background process). For each scenario, the test
 // navigates the live /index.html, replaces notebook state with a single
 // code cell, clicks the per-cell run button, and asserts on the rendered
-// output DOM. Scenarios cover the streaming-frontend acceptance criteria
-// from docs/plan/frontend-adaptation-plan.md + docs/plan/testing-and-rollout.md.
+// output DOM.
 
 import { test, expect, chromium } from '@playwright/test';
 import fs from 'fs';

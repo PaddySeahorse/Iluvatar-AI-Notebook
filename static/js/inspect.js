@@ -1,4 +1,4 @@
-// InspectManager: ? / ?? documentation viewer for CodeMirror — P3.
+// InspectManager: ? / ?? documentation viewer for CodeMirror.
 //
 // Triggered by Shift+Tab on the word at the cursor. Calls /api/inspect and
 // shows a floating panel with the object's docstring / source, rendered from
