@@ -38,13 +38,14 @@ from core.llm import (
 )
 from core.tools import TOOL_DEFS, execute_tool, get_tool_schemas
 
-MAX_STEPS = 6
+MAX_STEPS = 0
 REQUESTS_TIMEOUT = 60
 STREAM_TIMEOUT = 180
 TOOL_TIMEOUT = 30
 
 TOOL_LABELS = {
-    'run_cell': '执行代码单元',
+    'run_cell': '执行已知单元格',
+    'create_cell': '创建新单元格',
     'get_variables': '查看变量表',
     'list_files': '列出文件',
     'read_nb': '读取笔记本',
@@ -56,13 +57,15 @@ _TEXT_PROTOCOL_SYSTEM = """你是一个集成在 Iluvatar AI Notebook 中的 AI 
 你的目标是为用户解答关于国产 AI 芯片(天数智芯 Iluvatar Corex)、PyTorch/TensorFlow 开发调试、以及通用 Python 编程的问题。
 你可以使用以下工具来获取信息或执行操作：
 
-- run_cell(code): 在 Python 内核中执行一段代码。使用场景：运行实验、验证假设、计算结果、检查运行时对象。参数: {"code": "要执行的代码"}
+- run_cell(cell_index, filename): 执行一个已知的单元格。cell_index 为 read_nb 展示的 1-based 编号，filename 为 .ipynb 文件名（单文件时可省略）。只执行已存在单元格，不创建新格。参数: {"cell_index": 3, "filename": "demo.ipynb"}；兼容 {"code": "..."} 仅作临时探测。
+- create_cell(code, cell_type, index): 在用户当前的 Notebook 创建一个新单元格，仅创建不执行。index 为 0-based 插入位置（0=顶部, 1=在 [cell 1] 之后, 省略=末尾）。cell_type 为 "code"(默认) 或 "markdown"。参数: {"code": "单元格内容", "cell_type": "code", "index": 2}
 - get_variables(): 列出内核命名空间中当前活动的变量（名称、类型、值预览）。
 - list_files(): 列出工作区中的 notebook (.ipynb) 文件。
 - read_nb(filename): 读取指定 notebook 文件，返回其单元格的类型与代码预览。
 - gpu_status(): 查询天数智芯 GPU 的实时状态（使用率、显存、温度、功耗）。
 - kernel_status(): 检查 Python 内核及 watchdog 是否存活。
 
+职责分离：run_cell 只执行已知单元格、create_cell 只创建；需要“执行并留档”时先 read_nb 再 run_cell，交付时用 create_cell。
 需要调用工具时，只输出一个 JSON 对象，不要输出任何其他文字或 markdown：
 {"action": "工具名", "arguments": {参数对象}}
 
@@ -72,6 +75,8 @@ _TEXT_PROTOCOL_SYSTEM = """你是一个集成在 Iluvatar AI Notebook 中的 AI 
 _FUNCTION_SYSTEM = """你是一个集成在 Iluvatar AI Notebook 中的 AI 代理(ReAct)。
 你的目标是为用户解答关于国产 AI 芯片(天数智芯 Iluvatar Corex)、PyTorch/TensorFlow 开发调试、以及通用 Python 编程的问题。
 你可以调用工具来获取内核上下文、执行代码、查询文件或 GPU 状态。需要调用工具时使用 tool_call；直接能回答时直接回答。
+
+工具职责：run_cell 执行一个已知的单元格（按 read_nb 的 cell_index），不创建新格；create_cell 在指定 index 创建新单元格（省略则末尾）且不执行。
 回答尽量简洁、准确，必要时给出可直接运行的 PyTorch/NumPy 代码。"""
 
 
@@ -219,7 +224,13 @@ def agent_loop(
     yield {'type': 'status', 'stage': 'thinking'}
 
     tool_call_count = 0
-    for step in range(max_steps):
+    step = 0
+    while True:
+        if max_steps and step >= max_steps:
+            yield {'type': 'error', 'message': f"已达到最大工具调用步数({max_steps})，请尝试更具体的问题。"}
+            yield {'type': 'done', 'final': ''}
+            return
+        step += 1
         # Text-protocol mode (no native function-calling) streams tokens so the
         # user sees the reply as it's generated.  Function-calling mode keeps
         # the non-streaming call because accumulating tool_calls across stream
@@ -270,6 +281,11 @@ def agent_loop(
                     'name': name,
                     'ok': bool(result.get('ok')),
                     'summary': str(result.get('summary', '')),
+                    'stdout': str(result.get('stdout', ''))[:4000],
+                    'stderr': str(result.get('stderr', ''))[:4000],
+                    'plots': int(result.get('plots', 0) or 0),
+                    'arguments': arguments,
+                    'data': result.get('data', {}),
                 }
                 messages.append({
                     'role': 'tool',
@@ -297,6 +313,11 @@ def agent_loop(
                 'name': name,
                 'ok': bool(result.get('ok')),
                 'summary': str(result.get('summary', '')),
+                'stdout': str(result.get('stdout', ''))[:4000],
+                'stderr': str(result.get('stderr', ''))[:4000],
+                'plots': int(result.get('plots', 0) or 0),
+                'arguments': arguments,
+                'data': result.get('data', {}),
             }
             messages.append({
                 'role': 'user',
@@ -316,6 +337,3 @@ def agent_loop(
         yield {'type': 'content', 'text': content}
         yield {'type': 'done', 'final': content}
         return
-
-    yield {'type': 'error', 'message': f"已达到最大工具调用步数({max_steps})，请尝试更具体的问题。"}
-    yield {'type': 'done', 'final': ''}

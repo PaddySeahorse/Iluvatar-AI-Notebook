@@ -99,6 +99,63 @@ function sendToChainlit(text) {
     }
 }
 
+function insertAgentCell(code, opts = {}) {
+    if (!code || !code.trim()) return;
+    const cellType = opts.cell_type === 'markdown' ? 'markdown' : 'code';
+    const stdout = opts.stdout || '';
+    const stderr = opts.stderr || '';
+    const ok = opts.ok !== false;
+    let idx = opts.index;
+    if (idx != null) {
+        idx = parseInt(idx, 10);
+        if (isNaN(idx) || idx < 0) idx = state.cells.length;
+        if (idx > state.cells.length) idx = state.cells.length;
+    } else {
+        idx = state.cells.length;
+    }
+    if (cellType === 'markdown') {
+        const cell = {
+            id: 'cell_' + Math.random().toString(36).substr(2, 9),
+            type: 'markdown',
+            content: code,
+            isEditingMarkdown: false
+        };
+        state.cells.splice(idx, 0, cell);
+        state.activeCellId = cell.id;
+        triggerRender();
+        saveNotebookToLocalStorage();
+        showFloatingNotification(idx === state.cells.length - 1 ? 'Agent 已创建 Markdown 单元格' : `Agent 已在位置 ${idx} 创建 Markdown 单元格`);
+        return;
+    }
+    state.executionCounter++;
+    const cell = {
+        id: 'cell_' + Math.random().toString(36).substr(2, 9),
+        type: 'code',
+        content: code,
+        output: stdout || stderr ? { stdout, stderr, html: '', plots: [] } : null,
+        elapsedTime: null,
+        success: ok,
+        isExecuting: false,
+        executionIndex: state.executionCounter
+    };
+    state.cells.splice(idx, 0, cell);
+    state.activeCellId = cell.id;
+    triggerRender();
+    saveNotebookToLocalStorage();
+    showFloatingNotification(idx === state.cells.length - 1 ? 'Agent 已创建代码单元格' : `Agent 已在位置 ${idx} 创建代码单元格`);
+    if (cellType === 'code') updateVariablesInspector();
+}
+
+window.addEventListener('message', (event) => {
+    const d = event.data;
+    if (!d || d.type !== 'iluvatar:agent_cell') return;
+    if (d.source === 'create_cell') {
+        insertAgentCell(d.code, { cell_type: d.cell_type, index: d.index, ok: d.ok });
+    } else {
+        insertAgentCell(d.code, { stdout: d.stdout, stderr: d.stderr, ok: d.ok });
+    }
+});
+
 // Callbacks passed to renderer.js to decouple it from state mutation logic
 const rendererCallbacks = {
     onRunCell: (id) => runCell(id),
@@ -1418,15 +1475,66 @@ async function sendChatMessage() {
                 query,
                 messages: history,
                 includeContext,
-                maxSteps: 6
+                maxSteps: 0
             },
             {
                 onStatus: () => {},
                 onToolCall: (evt) => {
                     appendToolLog(evt.label || evt.name, '调用中…', true);
+                    if (evt.name === 'create_cell') {
+                        const code = (evt.arguments && evt.arguments.code) || '';
+                        const cellType = (evt.arguments && evt.arguments.cell_type) || 'code';
+                        const idx = evt.arguments && (evt.arguments.index ?? evt.arguments.position);
+                        if (code && code.trim()) {
+                            insertAgentCell(code, { cell_type: cellType, index: idx, ok: true });
+                        }
+                    } else if (evt.name === 'run_cell') {
+                        const idx = evt.arguments && (evt.arguments.cell_index || evt.arguments.cellId || evt.arguments.cell_id);
+                        const nIdx = idx != null ? parseInt(idx, 10) : NaN;
+                        if (!isNaN(nIdx) && nIdx >= 1 && nIdx <= state.cells.length) {
+                            const target = state.cells[nIdx - 1];
+                            if (target && target.type === 'code') {
+                                target.isExecuting = true;
+                                state.executionCounter++;
+                                target.executionIndex = state.executionCounter;
+                                triggerRender();
+                            }
+                        }
+                    }
                 },
                 onToolResult: (evt) => {
                     appendToolLog(evt.label || evt.name, evt.summary || '完成', evt.ok);
+                    if (evt.name === 'create_cell' && evt.ok) {
+                        const data = evt.data || {};
+                        const code = (evt.arguments && evt.arguments.code) || data.code || '';
+                        const cellType = (evt.arguments && evt.arguments.cell_type) || data.cell_type || 'code';
+                        const idx = (evt.arguments && (evt.arguments.index ?? evt.arguments.position)) ?? data.index;
+                        const alreadyInserted = state.cells.some(c => c.content === code);
+                        if (code && code.trim() && !alreadyInserted) {
+                            insertAgentCell(code, { cell_type: cellType, index: idx, ok: true });
+                        }
+                    } else if (evt.name === 'run_cell') {
+                        const data = evt.data || {};
+                        const idx = (evt.arguments && (evt.arguments.cell_index || evt.arguments.cellId || evt.arguments.cell_id)) || data.cell_index;
+                        const nIdx = idx != null ? parseInt(idx, 10) : NaN;
+                        const stdout = evt.stdout || '';
+                        const stderr = evt.stderr || '';
+                        if (!isNaN(nIdx) && nIdx >= 1 && nIdx <= state.cells.length) {
+                            const target = state.cells[nIdx - 1];
+                            if (target && target.type === 'code') {
+                                target.isExecuting = false;
+                                target.success = !!evt.ok;
+                                target.output = { stdout: stdout || '', stderr: stderr || '', html: '', plots: [] };
+                                if (!evt.ok && !stderr) target.output.stderr = evt.summary || '执行出错';
+                                if (!stdout && !stderr && evt.ok) target.output.stdout = evt.summary || '执行完成';
+                                triggerRender();
+                                saveNotebookToLocalStorage();
+                                updateVariablesInspector();
+                            }
+                        } else if (!isNaN(nIdx)) {
+                            showFloatingNotification(evt.summary || (evt.ok ? `单元格 ${nIdx} 执行完成` : `单元格 ${nIdx} 执行失败`));
+                        }
+                    }
                 },
                 onContent: (chunkText) => {
                     removeLoader();

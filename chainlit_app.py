@@ -89,7 +89,7 @@ async def on_chat_start() -> None:
     """初始化会话状态并提示 Notebook 位置。"""
     cl.user_session.set("history", [])
     cl.user_session.set("include_context", True)
-    cl.user_session.set("max_steps", 6)
+    cl.user_session.set("max_steps", 0)
 
     cfg = _llm_config()
     if not (cfg["url"] and cfg["model"]):
@@ -195,6 +195,18 @@ async def on_message(message: cl.Message) -> None:
                 current_step.is_error = not event.get("ok", False)
                 await current_step.update()
                 current_step = None
+            if event.get("name") == "create_cell":
+                try:
+                    import html as _html
+                    args = event.get("arguments") or {}
+                    code = args.get("code", "") if isinstance(args, dict) else ""
+                    cell_type = args.get("cell_type", "code") if isinstance(args, dict) else "code"
+                    idx = args.get("index", args.get("position")) if isinstance(args, dict) else None
+                    payload = json.dumps({"code": code, "cell_type": cell_type, "index": idx, "ok": event.get("ok", True)}, ensure_ascii=False)
+                    esc = _html.escape(payload)
+                    await cl.Message(content=f"<span style='display:none'>__AGENT_CELL_CREATE__{esc}</span><script>try{{parent.postMessage({{type:'iluvatar:agent_cell',source:'create_cell',code:{json.dumps(code)},cell_type:{json.dumps(cell_type)},index:{json.dumps(idx)},ok:{json.dumps(event.get('ok', True))}}},'*')}}catch(e){{}}</script>").send()
+                except Exception:
+                    pass
 
         elif etype == "content":
             token = event.get("text", "")
