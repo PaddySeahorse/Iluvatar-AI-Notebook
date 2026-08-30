@@ -1,7 +1,7 @@
 # requirements.txt — Iluvatar AI Notebook
 #
 # 按代码库实际导入裁剪（lint_routes 使用 stdlib ast，无需 pylint；
-# python-dotenv 未使用，app.py 手动解析 .env）。
+# python-dotenv 未使用，.env 模板已随 FastAPI 迁移移除）。
 # 统一 ASGI 入口：主框架为 FastAPI + uvicorn + Chainlit。
 
 # ── Web 框架 ──────────────────────────────────────

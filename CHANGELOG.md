@@ -1,5 +1,18 @@
 # Changelog
 
+## 启动开关自动化（2026-08）
+
+- **天数设备自动检测** — 新增 `core/startup_flags.py`（`core.state` import 时执行）：按 `ixuca-smi` → `ixsmi` 优先级探测天数 GPU（与 `core/iluvatar_provisioner` 同款 CLI 优先级），自动固化 `USE_ILUVATAR_PROVISIONER` 并把结果持久化到 `~/.Iluvatar-AI-Notebook/setting.json`（0600）
+- **OpenAI SDK 强制启用** — 启动时 `USE_OPENAI_SDK` 自动置 `1`（openai 已是硬依赖），显式设 `0` 保留 requests 逃生门；`configure_logging` 提前至 `core.state` import 前，保证检测日志可见
+- **测试** — 新增 `tests/unit/test_startup_flags.py`（探测优先级/回退/超时/落盘/逃生门）
+
+## 设置面板 · 高级模式直编 LiteLLM 配置（2026-08）
+
+- **单一配置真相源** — `~/.Iluvatar-AI-Notebook/litellm_config.yaml` 成为 LLM 配置唯一持久化文件；高级模式（CodeMirror）逐字编辑，文件缺失时展示按环境三件套生成的预览；`config.yaml` 用户配置快照退役（`core/user_config.py` 薄化为配置目录助手），`/api/get_config` 改从 `model_list` 首条目读取并回退环境种子
+- **带回滚重启校验** — 高级模式保存 = 轻量 YAML 校验 → 逐字写入（0600）→ 重启代理 → 健康检查；失败自动恢复旧配置、重启还原路由，并把 `litellm_proxy.log` 尾部（ANSI 剥离，最后 40 行）作为错误摘要返回
+- **手动接管** — 高级模式保存成功后创建标记 `litellm_config.manual`；接管中基础模式表单保存返回 409 `CONFIG_MANAGED_MANUALLY` 并引导至高级模式（前端自动切换视图），系统状态零影响
+- **测试** — `test_litellm_manager.py` 扩展（回滚/首条目/标记）、`test_ai_config.py`、`test_config_file_routes.py` 重写，`test_user_config.py` 薄化
+
 ## 测试修复（2026-08）
 
 - **图表捕获修复** — 内核启动时自动注入 `MPLBACKEND=module://matplotlib_inline.backend_inline`，避免无头环境下回退到 Agg 后端导致 `plt.show()` 不产生 `display_data`、仪表板图表捕获失效；`kernels/iluvatar_python/kernel.json` 同步内置该变量

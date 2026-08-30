@@ -80,7 +80,7 @@ pip install -r requirements.txt
 pip install openai "litellm[proxy]"
 ```
 
-> LLM 传输层固定请求本地 LiteLLM Proxy（`LITELLM_PROXY_URL` 默认 `http://localhost:4000`），代理再按设置面板保存的上游配置转发；`USE_OPENAI_SDK=0` 强制 requests 兜底，`1` 强制 SDK，未安装 openai 时自动降级。
+> LLM 传输层固定请求本地 LiteLLM Proxy（`LITELLM_PROXY_URL` 默认 `http://localhost:4000`），代理再按设置面板保存的上游配置转发；启动时自动强制 `USE_OPENAI_SDK=1`（OpenAI SDK 传输），显式设 `0` 可回退 requests 兜底。
 
 天数智芯 GPU 环境（可选）：
 
@@ -89,8 +89,10 @@ pip install openai "litellm[proxy]"
 pip install -e . --no-deps
 # 安装内核描述文件
 jupyter kernelspec install kernels/iluvatar_python --prefix /usr/local
-# 启动时启用
-USE_ILUVATAR_PROVISIONER=true python app_fastapi.py
+# 启动时自动经 ixuca-smi/ixsmi 探测天数 GPU 并切换 iluvatar_python 内核；
+# 探测结果持久化到 ~/.Iluvatar-AI-Notebook/setting.json，也可显式覆盖：
+# USE_ILUVATAR_PROVISIONER=true python app_fastapi.py
+python app_fastapi.py
 ```
 
 开发工具（可选）：`pip install black isort mypy flake8`

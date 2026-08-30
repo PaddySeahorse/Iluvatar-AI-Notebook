@@ -40,19 +40,22 @@ from core.observability import (
     new_trace_id,
     set_trace_id,
 )
-from core.litellm_manager import get_litellm_config_path, litellm_manager, write_config
-from core.routes import register_error_handlers, register_routers
-from core.state import app_state
 
-logger = logging.getLogger(__name__)
-
-_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-
-# 结构化日志（JSON lines）+ LOG_LEVEL
+# Logging must be configured before ``core.state`` is imported: its import
+# side effect runs the startup hardware probe (core.startup_flags), whose
+# log lines would otherwise be swallowed by the unconfigured root logger.
 _log_level = getattr(
     logging, os.environ.get('LOG_LEVEL', 'INFO').upper(), logging.INFO
 )
 configure_logging(level=_log_level)
+
+from core.litellm_manager import get_litellm_config_path, litellm_manager, write_config  # noqa: E402
+from core.routes import register_error_handlers, register_routers  # noqa: E402
+from core.state import app_state  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _cleanup_gpu():

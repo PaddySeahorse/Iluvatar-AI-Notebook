@@ -7,7 +7,8 @@
 
 ## Run & Config
 - Install: `pip install -r requirements.txt` then `pip install -e . --no-deps` for `iluvatar_python` provisioner entry point.
-- Env seeds on first boot into `~/.Iluvatar-AI-Notebook/config.yaml` (0600): `OPENI_API_URL` / `OPENI_API_TOKEN` / `OPENI_API_MODEL`; later edits via UI or `LITELLM_PROXY_URL`, `USE_OPENAI_SDK`, `ALLOWED_ORIGINS`, `USE_ILUVATAR_PROVISIONER=true`, `LOG_LEVEL`.
+- **Single LLM config file**: `~/.Iluvatar-AI-Notebook/litellm_config.yaml` (0600) is the only source of truth — advanced mode edits it verbatim, basic form rewrites it via `sync_config`; manual takeover marker `litellm_config.manual` makes basic-form saves return 409. Startup bootstraps it from env (`OPENI_API_URL` / `OPENI_API_TOKEN` / `OPENI_API_MODEL`) only when the file is absent.
+- Startup flags (`core/startup_flags.py`, runs at `core.state` import): probes Iluvatar GPUs via `ixuca-smi` → `ixsmi`, pins `USE_ILUVATAR_PROVISIONER` accordingly and persists the outcome to `~/.Iluvatar-AI-Notebook/setting.json`; `USE_OPENAI_SDK` is forced to `1` unless the deployment sets `0` explicitly. Other env knobs: `LITELLM_PROXY_URL`, `ALLOWED_ORIGINS`, `LOG_LEVEL`.
 - Lifecycle in `app_fastapi.lifespan`: `warm_start` kernel, bootstrap litellm config from env, `ensure_running` proxy, `atexit` cleanup of watchdog/kernel/terminal/proxy. Port via `OPENI_SELF_PORT` (default 5000). Chainlit auto-redirects `/agent` → `/agent/` (307).
 - **Startup must be Python**: `python app_fastapi.py` (or `uvicorn app_fastapi:app`) — do not switch to node/npm or other runtimes.
 - **Single exposed port**: only `OPENI_SELF_PORT` is user-accessible; do not bind auxiliary services to other ports — frontend must proxy `/api/*` through the same FastAPI process.
@@ -24,6 +25,7 @@
 
 ## Gotchas
 - Litellm proxy requires `pip install "litellm[proxy]"`; if missing, `ensure_running` warns and notebook still boots. Config at `~/.Iluvatar-AI-Notebook/litellm_config.yaml`, log `litellm_proxy.log`.
-- OpenAI SDK is optional: `USE_OPENAI_SDK=0` forces `requests` fallback, `=1` forces SDK; unset = auto-detect. Both backends return same `{"content","tool_calls"}` shape.
+- OpenAI SDK transport: startup pins `USE_OPENAI_SDK=1` (explicit `0` still forces the `requests` fallback). Both backends return same `{"content","tool_calls"}` shape.
+- Legacy user-config snapshot `~/.Iluvatar-AI-Notebook/config.yaml` is retired (d85fdbe): zero reads/writes anywhere; do not reintroduce it.
 - `pyproject.toml` registers `iluvatar-provisioner`; without `pip install -e .` the GPU path needs `register_provisioner()` programmatically.
 - No `docs/` — removed in e395752, history in `CHANGELOG.md`. Do not recreate.
