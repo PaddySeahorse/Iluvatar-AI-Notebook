@@ -69,14 +69,42 @@ def is_openai_sdk_enabled() -> bool:
 
 
 def _to_api_base(url: str) -> str:
-    """Return the local LiteLLM Proxy OpenAI-compatible base URL.
-
-    The ``url`` argument (the upstream model config) is intentionally ignored:
-    the transport is pinned to the self-hosted proxy so client code can keep
-    threading the upstream config through without affecting where the request
-    is actually sent.
-    """
+    """Return the local LiteLLM Proxy OpenAI-compatible base URL."""
     return _LITELLM_API_BASE
+
+
+def _upstream_base(url: str) -> str:
+    if not url:
+        return ''
+    u = url.strip()
+    if '/chat/completions' in u:
+        u = u.split('/chat/completions')[0]
+    return u.rstrip('/')
+
+
+def _is_proxy_error(e) -> bool:
+    msg = str(e).lower()
+    return any(k in msg for k in ['connection', 'proxy', 'cannot reach', 'refused', 'failed to connect', 'name or service not known'])
+
+
+def _upstream_client(url, token):
+    base = _upstream_base(url)
+    if not base:
+        base = _LITELLM_API_BASE
+    if base.endswith('/v1'):
+        pass
+    elif '/v1' not in base:
+        base = base.rstrip('/') + '/v1'
+    return openai.OpenAI(base_url=base or None, api_key=token or None, max_retries=1)
+
+
+def _upstream_endpoint(url: str) -> str:
+    base = _upstream_base(url)
+    if not base:
+        return _LITELLM_CHAT_ENDPOINT
+    if base.endswith('/v1'):
+        return base + '/chat/completions'
+    return base.rstrip('/') + '/v1/chat/completions'
 
 
 def _normalize_tool_calls(message) -> list | None:
@@ -139,7 +167,20 @@ def _openai_nostream(url, token, model, messages, tools=None, timeout=_REQUESTS_
             timeout=timeout,
         )
     except Exception as e:
-        raise _map_openai_error(e) from e
+        if _is_proxy_error(e) and _upstream_base(url):
+            try:
+                resp = _upstream_client(url, token).chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.7,
+                    tools=tools or None,
+                    tool_choice='auto' if tools else None,
+                    timeout=timeout,
+                )
+            except Exception as ue:
+                raise _map_openai_error(ue) from ue
+        else:
+            raise _map_openai_error(e) from e
 
     try:
         message = resp.choices[0].message
@@ -154,14 +195,9 @@ def _openai_nostream(url, token, model, messages, tools=None, timeout=_REQUESTS_
 
 
 def _openai_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
-    try:
-        resp = _openai_client(url, token).chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.7,
-            stream=True,
-            timeout=timeout,
-        )
+    def _iter(client):
+        resp = client.chat.completions.create(
+            model=model, messages=messages, temperature=0.7, stream=True, timeout=timeout)
         for chunk in resp:
             choices = getattr(chunk, 'choices', None) or []
             if not choices:
@@ -172,10 +208,20 @@ def _openai_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
             text = getattr(delta, 'content', None)
             if text:
                 yield text
+    try:
+        yield from _iter(_openai_client(url, token))
     except LLMError:
         raise
     except Exception as e:
-        raise _map_openai_error(e, streaming=True) from e
+        if _is_proxy_error(e) and _upstream_base(url):
+            try:
+                yield from _iter(_upstream_client(url, token))
+            except LLMError:
+                raise
+            except Exception as ue:
+                raise _map_openai_error(ue, streaming=True) from ue
+        else:
+            raise _map_openai_error(e, streaming=True) from e
 
 
 def _openai_probe(url, token, model) -> bool:
@@ -213,16 +259,41 @@ def _requests_nostream(url, token, model, messages, tools=None, timeout=_REQUEST
     if tools:
         payload['tools'] = tools
         payload['tool_choice'] = 'auto'
+    def _do(endpoint):
+        return requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
     try:
-        resp = requests.post(_LITELLM_CHAT_ENDPOINT, headers=headers, json=payload, timeout=timeout)
+        resp = _do(_LITELLM_CHAT_ENDPOINT)
     except requests.exceptions.ConnectionError as e:
-        raise LLMError(f'无法连接 API 服务: {e}') from e
+        if _upstream_base(url):
+            try:
+                resp = _do(_upstream_endpoint(url))
+            except requests.exceptions.ConnectionError as ue:
+                raise LLMError(f'无法连接 API 服务: {ue}') from ue
+            except requests.exceptions.Timeout as ue:
+                raise LLMError('API 请求超时') from ue
+            except requests.exceptions.RequestException as ue:
+                raise LLMError(f'API 请求失败: {ue}') from ue
+        else:
+            raise LLMError(f'无法连接 API 服务: {e}') from e
     except requests.exceptions.Timeout as e:
         raise LLMError('API 请求超时') from e
     except requests.exceptions.RequestException as e:
         raise LLMError(f'API 请求失败: {e}') from e
     if resp.status_code != 200:
-        raise LLMError(f'API 返回 HTTP {resp.status_code}: {resp.text[:200]}', http_status=resp.status_code)
+        is_proxy = getattr(getattr(resp, 'request', None), 'url', '') == _LITELLM_CHAT_ENDPOINT or not getattr(getattr(resp, 'request', None), 'url', '')
+        if resp.status_code >= 500 and _upstream_base(url) and is_proxy:
+            try:
+                r2 = _do(_upstream_endpoint(url))
+                if r2.status_code == 200:
+                    resp = r2
+                else:
+                    raise LLMError(f'API 返回 HTTP {r2.status_code}: {r2.text[:200]}', http_status=r2.status_code)
+            except LLMError:
+                raise
+            except Exception:
+                raise LLMError(f'API 返回 HTTP {resp.status_code}: {resp.text[:200]}', http_status=resp.status_code)
+        else:
+            raise LLMError(f'API 返回 HTTP {resp.status_code}: {resp.text[:200]}', http_status=resp.status_code)
 
     try:
         data = resp.json()
@@ -242,12 +313,33 @@ def _requests_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT):
     if token:
         headers['Authorization'] = f'Bearer {token}'
     payload = {'model': model, 'messages': messages, 'temperature': 0.7, 'stream': True}
+    def _do(endpoint):
+        return requests.post(endpoint, headers=headers, json=payload, timeout=timeout, stream=True)
     try:
-        resp = requests.post(_LITELLM_CHAT_ENDPOINT, headers=headers, json=payload, timeout=timeout, stream=True)
+        resp = _do(_LITELLM_CHAT_ENDPOINT)
     except requests.exceptions.RequestException as e:
-        raise LLMError(f'API 流式请求失败: {e}') from e
+        if _upstream_base(url):
+            try:
+                resp = _do(_upstream_endpoint(url))
+            except requests.exceptions.RequestException as ue:
+                raise LLMError(f'API 流式请求失败: {ue}') from ue
+        else:
+            raise LLMError(f'API 流式请求失败: {e}') from e
     if resp.status_code != 200:
-        raise LLMError(f'API 返回 HTTP {resp.status_code}: {resp.text[:200]}', http_status=resp.status_code)
+        is_proxy2 = getattr(getattr(resp, 'request', None), 'url', '') == _LITELLM_CHAT_ENDPOINT or not getattr(getattr(resp, 'request', None), 'url', '')
+        if _upstream_base(url) and is_proxy2:
+            try:
+                r2 = _do(_upstream_endpoint(url))
+                if r2.status_code == 200:
+                    resp = r2
+                else:
+                    raise LLMError(f'API 返回 HTTP {r2.status_code}: {r2.text[:200]}', http_status=r2.status_code)
+            except LLMError:
+                raise
+            except Exception:
+                raise LLMError(f'API 返回 HTTP {resp.status_code}: {resp.text[:200]}', http_status=resp.status_code)
+        else:
+            raise LLMError(f'API 返回 HTTP {resp.status_code}: {resp.text[:200]}', http_status=resp.status_code)
 
     for raw_line in resp.iter_lines():
         if not raw_line:
@@ -315,6 +407,28 @@ def chat_stream(url, token, model, messages, timeout=_STREAM_TIMEOUT, backend=No
         yield from _openai_stream(url, token, model, messages, timeout=timeout)
     else:
         yield from _requests_stream(url, token, model, messages, timeout=timeout)
+
+
+def check_api_health(url, token, model, timeout=8) -> dict:
+    try:
+        if is_openai_sdk_enabled():
+            _openai_client(url, token).chat.completions.create(
+                model=model, messages=[{'role': 'user', 'content': 'ping'}], max_tokens=1, timeout=timeout)
+        else:
+            headers = {'Content-Type': 'application/json'}
+            if token:
+                headers['Authorization'] = f'Bearer {token}'
+            endpoint = _LITELLM_CHAT_ENDPOINT
+            try:
+                r = requests.post(endpoint, headers=headers, json={'model': model, 'messages': [{'role': 'user', 'content': 'ping'}], 'max_tokens': 1}, timeout=timeout)
+                if r.status_code != 200 and _upstream_base(url):
+                    r = requests.post(_upstream_endpoint(url), headers=headers, json={'model': model, 'messages': [{'role': 'user', 'content': 'ping'}], 'max_tokens': 1}, timeout=timeout)
+                r.raise_for_status()
+            except Exception:
+                raise
+        return {'ok': True, 'message': '连接正常'}
+    except Exception as e:
+        return {'ok': False, 'message': str(e)[:300]}
 
 
 def probe_tool_support(url, token, model, backend=None) -> bool:

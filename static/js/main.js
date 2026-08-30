@@ -203,6 +203,25 @@ const rendererCallbacks = {
     onAiAssist: (id, prompt, btn) => runCellAiAssist(id, prompt, btn),
     onDebug: (id, btn) => runCellDebug(id, btn),
     onExplainCell: (id) => runCellExplain(id),
+    onAcceptDebugOverwrite: (id, code) => {
+        const cell = state.cells.find(c => c.id === id);
+        if (cell) { cell.content = code; delete cell.aiDebug; triggerRender(); saveNotebookToLocalStorage(); showFloatingNotification('已用修复代码覆盖！'); saveDebugHistory(cell.content, code, true); }
+    },
+    onAcceptDebugInsert: (id, code) => {
+        const idx = state.cells.findIndex(c => c.id === id);
+        const newCell = { id: 'cell_' + Math.random().toString(36).substr(2, 9), type: 'code', content: code, output: null, elapsedTime: null, success: true, isExecuting: false };
+        state.cells.splice(idx + 1, 0, newCell);
+        const cell = state.cells.find(c => c.id === id);
+        if (cell) delete cell.aiDebug;
+        state.activeCellId = newCell.id;
+        triggerRender(); saveNotebookToLocalStorage(); showFloatingNotification('已插入修复代码为新单元格！'); saveDebugHistory(cell ? cell.content : '', code, true);
+    },
+    onDiscardDebug: (id) => {
+        const cell = state.cells.find(c => c.id === id);
+        if (cell) { delete cell.aiDebug; triggerRender(); saveNotebookToLocalStorage(); }
+    },
+    onToggleDiff: (id) => { triggerRender(); saveNotebookToLocalStorage(); },
+    onShowToast: (msg) => showFloatingNotification(msg),
     onAcceptOverwrite: (id, code) => {
         const cell = state.cells.find(c => c.id === id);
         if (cell) {
@@ -875,6 +894,25 @@ function setupEventListeners() {
         showFloatingNotification(saved.message || '写入服务器配置失败');
     });
 
+    const checkBtn = document.getElementById('checkApiHealthBtn');
+    const healthStatus = document.getElementById('apiHealthStatus');
+    if (checkBtn) {
+        checkBtn.addEventListener('click', async () => {
+            const url = apiUrlInput.value.trim() || document.getElementById('apiUrlInput').value.trim();
+            const token = document.getElementById('apiTokenInput').value.trim();
+            const model = document.getElementById('modelInput').value.trim();
+            if (!url || !model) { if (healthStatus) healthStatus.textContent = '请先填写 URL 和模型'; return; }
+            checkBtn.disabled = true; const orig = checkBtn.innerHTML; checkBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> 检测中';
+            if (healthStatus) healthStatus.textContent = '';
+            try {
+                const qs = new URLSearchParams({ url, token, model });
+                const res = await fetch(`/api/health_check?${qs}`);
+                const data = await res.json();
+                if (healthStatus) { healthStatus.textContent = data.ok ? '✓ 连接正常' : '✗ ' + (data.message || '连接失败'); healthStatus.style.color = data.ok ? 'var(--success)' : 'var(--error)'; }
+            } catch (e) { if (healthStatus) { healthStatus.textContent = '✗ ' + e.message; healthStatus.style.color = 'var(--error)'; } }
+            checkBtn.disabled = false; checkBtn.innerHTML = orig;
+        });
+    }
     document.getElementById('resetSettingsBtn').addEventListener('click', () => {
         fetch('/api/get_config')
             .then(res => res.json())
@@ -1384,22 +1422,112 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     }
 }
 
+function stripAnsi(str) { return (str || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''); }
+function saveDebugHistory(original, fixed, success) {
+    try {
+        const key = 'notebook_debug_history';
+        let h = JSON.parse(localStorage.getItem(key) || '[]');
+        h.unshift({ timestamp: new Date().toLocaleString('zh-CN'), original: (original||'').slice(0,1200), fixed: (fixed||'').slice(0,1200), success: !!success });
+        if (h.length > 50) h = h.slice(0,50);
+        localStorage.setItem(key, JSON.stringify(h));
+    } catch(e) {}
+}
+
 async function runCellDebug(id, buttonElement) {
     const cell = state.cells.find(c => c.id === id);
     if (!cell || !cell.output || !cell.output.stderr) return;
-    const originalText = buttonElement.innerHTML;
-    buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block" aria-hidden="true"></i> 诊断中…';
-    buttonElement.disabled = true;
-    const text = `调试单元格代码 (错误诊断)\n\n我的代码：\n\`\`\`python\n${cell.content}\n\`\`\`\n\n执行报错 (Traceback)：\n${cell.output.stderr}\n\n请分析原因并给出修复后的完整代码。`;
-    const sent = sendToChainlit(text);
-    if (sent) {
-        showFloatingNotification('已将诊断请求发送至 AI 助手');
-        setTimeout(() => { buttonElement.innerHTML = originalText; buttonElement.disabled = false; }, 800);
-        return;
+    const originalText = buttonElement ? buttonElement.innerHTML : '';
+    if (buttonElement) { buttonElement.innerHTML = '<i class="fa-solid fa-spinner loading-icon" style="display:inline-block" aria-hidden="true"></i> 诊断中…'; buttonElement.disabled = true; }
+    const cleanStderr = stripAnsi(cell.output.stderr).slice(0, 4000);
+    const cleanCode = cell.content.slice(0, 6000);
+    let contextText = '';
+    const includeContextEl = document.getElementById('includeContextCheckbox');
+    const includeContext = includeContextEl ? includeContextEl.checked : true;
+    if (includeContext) {
+        const idx = state.cells.findIndex(c => c.id === id);
+        if (idx > 0) {
+            const prev = state.cells.slice(Math.max(0, idx - 3), idx).map((c,i)=> `[前序Cell ${i+1}]\n${c.content.slice(0,500)}\n${c.output && c.output.stderr ? 'stderr:'+stripAnsi(c.output.stderr).slice(0,300): ''}`).join('\n');
+            if (prev) contextText = '前序相关代码（供上下文参考）：\n' + prev + '\n\n';
+        }
+        try {
+            const vEl = document.getElementById('variablesList');
+            if (vEl) {
+                const vars = await fetchKernelVariables().catch(()=>[]);
+                if (vars && vars.length) contextText += '当前变量：' + vars.slice(0,8).map(v=> `${v.name}:${v.type}`).join(', ') + '\n\n';
+            }
+        } catch(e) {}
     }
-    buttonElement.innerHTML = originalText;
-    buttonElement.disabled = false;
-    showFloatingNotification('AI 助手未就绪，请在右侧 AI 助手手动提问');
+    let lintHint = '';
+    try {
+        const diag = await lintCellOnBackend(cleanCode).catch(()=>null);
+        if (diag && diag.errors && diag.errors.length) lintHint = '静态检查：' + diag.errors.map(e=> e.message).join('; ') + '\n\n';
+    } catch(e) {}
+    const userPrompt = `${contextText}${lintHint}调试单元格代码 (错误诊断)\n\n我的代码：\n\`\`\`python\n${cleanCode}\n\`\`\`\n\n执行报错 (Traceback)：\n${cleanStderr}\n\n请先用1-2句中文分析原因，然后给出修复后的完整可运行代码。只输出一个 \`\`\`python 代码块。`;
+    const chainlitText = `调试单元格代码 (错误诊断)\n\n我的代码：\n\`\`\`python\n${cleanCode}\n\`\`\`\n\n执行报错：\n${cleanStderr}\n\n请分析原因并给出修复后的完整代码。`;
+    const sent = sendToChainlit(chainlitText);
+    if (sent) showFloatingNotification('已同步发送至 AI 助手侧边栏');
+    cell.aiDebug = { code: '', diagnosis: '', isGenerating: true, showDiff: false, error: '' };
+    triggerRender();
+    saveNotebookToLocalStorage();
+    const messages = [
+        { role: 'system', content: '你是天数智芯 Notebook 的 Python 调试助手。先简洁分析错误原因（中文），然后只输出修复后的完整 Python 代码，用 ```python 包裹。不要输出多余解释。' },
+        { role: 'user', content: userPrompt }
+    ];
+    const cleanLlmCode = (raw) => {
+        let t = (raw || '').trim();
+        const m = t.match(/```python([\s\S]*?)```/);
+        if (m) return m[1].trim();
+        const m2 = t.match(/```([\s\S]*?)```/);
+        if (m2) return m2[1].trim();
+        t = t.replace(/^```python\s*/,'').replace(/^```\s*/,'').replace(/```$/,'');
+        t = t.replace(/^(Here is|修复后|原因).*?\n+/i,'');
+        return t.trim();
+    };
+    const extractDiagnosis = (raw) => {
+        const parts = raw.split('```');
+        const before = (parts[0] || '').trim();
+        if (before.length > 10 && before.length < 500) return before.slice(0,400);
+        return '';
+    };
+    try {
+        await callLlmProxyStream(messages, (fullText) => {
+            cell.aiDebug.code = cleanLlmCode(fullText);
+            cell.aiDebug.diagnosis = extractDiagnosis(fullText);
+            const el = document.getElementById(`debug_preview_${cell.id}`);
+            if (el) {
+                const codeEl = el.querySelector('code');
+                if (codeEl) codeEl.innerText = cell.aiDebug.code || fullText.slice(0,2000);
+                const diagEl = el.querySelector('.debug-diagnosis');
+                if (diagEl && cell.aiDebug.diagnosis) diagEl.innerText = cell.aiDebug.diagnosis;
+            } else {
+                triggerRender();
+            }
+        });
+        cell.aiDebug.isGenerating = false;
+        if (!cell.aiDebug.code) cell.aiDebug.error = '未解析到修复代码，请重试';
+        triggerRender(); saveNotebookToLocalStorage();
+        saveDebugHistory(cleanCode, cell.aiDebug.code, !cell.aiDebug.error);
+        showFloatingNotification(cell.aiDebug.error ? '诊断完成但解析失败' : 'AI 诊断完成');
+    } catch (e) {
+        console.warn('debug stream failed, fallback', e);
+        try {
+            const reply = await callLlmProxy(messages);
+            cell.aiDebug.code = cleanLlmCode(reply);
+            cell.aiDebug.diagnosis = extractDiagnosis(reply);
+            cell.aiDebug.isGenerating = false;
+            if (!cell.aiDebug.code) cell.aiDebug.error = reply.slice(0,500);
+            triggerRender(); saveNotebookToLocalStorage();
+            saveDebugHistory(cleanCode, cell.aiDebug.code, !cell.aiDebug.error);
+            showFloatingNotification(cell.aiDebug.error ? '诊断失败: '+e.message : 'AI 诊断完成');
+        } catch (e2) {
+            cell.aiDebug.isGenerating = false;
+            cell.aiDebug.error = e2.message || String(e2);
+            triggerRender();
+            showFloatingNotification('AI 调试失败: ' + cell.aiDebug.error + ' 请检查设置中的 API 配置');
+        }
+    } finally {
+        if (buttonElement) { buttonElement.innerHTML = originalText; buttonElement.disabled = false; }
+    }
 }
 
 async function sendChatMessage() {

@@ -384,9 +384,11 @@ function renderCodeEditor(cell, callbacks) {
     
     inputArea.appendChild(copilotBar);
 
-    // Render AI Code suggestion card if it exists
     if (cell.aiSuggestion) {
         inputArea.appendChild(renderAiSuggestion(cell, callbacks));
+    }
+    if (cell.aiDebug) {
+        inputArea.appendChild(renderAiDebugPreview(cell, callbacks));
     }
 
     return inputArea;
@@ -442,21 +444,115 @@ function renderCellOutput(cell) {
     return outputArea;
 }
 
-// Helper: render error feedback and AI debug launcher bar
+function renderDiffView(original, fixed) {
+    const origLines = (original || '').split('\n');
+    const fixedLines = (fixed || '').split('\n');
+    const maxLen = Math.max(origLines.length, fixedLines.length);
+    let html = '';
+    for (let i = 0; i < maxLen; i++) {
+        const o = origLines[i];
+        const f = fixedLines[i];
+        if (o === f) {
+            html += `<div class="diff-line diff-unchanged"><span class="diff-marker"> </span>${escapeHtml(f ?? '')}</div>`;
+        } else {
+            if (o !== undefined) html += `<div class="diff-line diff-removed"><span class="diff-marker">-</span>${escapeHtml(o)}</div>`;
+            if (f !== undefined) html += `<div class="diff-line diff-added"><span class="diff-marker">+</span>${escapeHtml(f)}</div>`;
+        }
+    }
+    return html;
+}
+
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str == null ? '' : String(str);
+    return d.innerHTML;
+}
+
+export function renderAiDebugPreview(cell, callbacks) {
+    const dbg = cell.aiDebug;
+    if (!dbg) return document.createDocumentFragment();
+    const wrap = document.createElement('div');
+    wrap.className = 'ai-debug-preview';
+    wrap.id = `debug_preview_${cell.id}`;
+    const title = dbg.isGenerating ? 'AI 正在诊断…' : (dbg.error ? '诊断失败' : 'AI 诊断完成');
+    const icon = dbg.isGenerating ? 'fa-spinner fa-spin' : (dbg.error ? 'fa-triangle-exclamation' : 'fa-bug-slash');
+    wrap.innerHTML = `
+        <div class="debug-preview-header">
+            <span><i class="fa-solid ${icon}" aria-hidden="true"></i> ${title}</span>
+            <span class="debug-preview-meta">${dbg.isGenerating ? '' : (dbg.code ? dbg.code.split('\n').length + ' 行修复' : '')}</span>
+        </div>
+    `;
+    const header = wrap.querySelector('.debug-preview-header');
+    const actions = document.createElement('div');
+    actions.className = 'suggestion-actions';
+    if (dbg.isGenerating) actions.style.display = 'none';
+    if (!dbg.isGenerating && !dbg.error && dbg.code) {
+        const ow = document.createElement('button');
+        ow.className = 'suggestion-btn accept-overwrite';
+        ow.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> 覆盖';
+        ow.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onAcceptDebugOverwrite(cell.id, dbg.code); });
+        const ins = document.createElement('button');
+        ins.className = 'suggestion-btn accept-insert';
+        ins.innerHTML = '<i class="fa-solid fa-plus" aria-hidden="true"></i> 插入新 Cell';
+        ins.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onAcceptDebugInsert(cell.id, dbg.code); });
+        const cp = document.createElement('button');
+        cp.className = 'suggestion-btn';
+        cp.innerHTML = '<i class="fa-solid fa-copy" aria-hidden="true"></i> 复制';
+        cp.addEventListener('click', (e) => { e.stopPropagation(); navigator.clipboard.writeText(dbg.code); if (callbacks.onShowToast) callbacks.onShowToast('修复代码已复制'); else { const t=document.createElement('div'); t.className='floating-notification show'; t.innerText='修复代码已复制'; document.body.appendChild(t); setTimeout(()=>t.remove(),2000);} });
+        const diffBtn = document.createElement('button');
+        diffBtn.className = 'suggestion-btn';
+        diffBtn.innerHTML = `<i class="fa-solid fa-code-compare" aria-hidden="true"></i> ${dbg.showDiff ? '隐藏差异' : '对比差异'}`;
+        diffBtn.addEventListener('click', (e) => { e.stopPropagation(); dbg.showDiff = !dbg.showDiff; if (callbacks.onToggleDiff) callbacks.onToggleDiff(cell.id); else location.reload(); });
+        actions.appendChild(ow); actions.appendChild(ins); actions.appendChild(cp); actions.appendChild(diffBtn);
+    }
+    const dis = document.createElement('button');
+    dis.className = 'suggestion-btn discard';
+    dis.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i> 关闭';
+    dis.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDiscardDebug(cell.id); });
+    if (!dbg.isGenerating) actions.appendChild(dis);
+    header.appendChild(actions);
+    if (dbg.diagnosis) {
+        const diag = document.createElement('div');
+        diag.className = 'debug-diagnosis';
+        diag.innerText = dbg.diagnosis;
+        wrap.appendChild(diag);
+    }
+    if (dbg.error) {
+        const err = document.createElement('div');
+        err.className = 'debug-error';
+        err.innerText = dbg.error;
+        wrap.appendChild(err);
+    } else if (dbg.showDiff && dbg.code) {
+        const diffWrap = document.createElement('div');
+        diffWrap.className = 'debug-diff';
+        diffWrap.innerHTML = renderDiffView(cell.content, dbg.code);
+        wrap.appendChild(diffWrap);
+    } else {
+        const pre = document.createElement('pre');
+        const code = document.createElement('code');
+        code.className = 'language-python';
+        code.innerText = dbg.code || (dbg.isGenerating ? '正在生成修复代码…' : '暂无修复');
+        pre.appendChild(code);
+        wrap.appendChild(pre);
+    }
+    return wrap;
+}
+
 export function renderAiDebugBar(cell, callbacks) {
     const debugBar = document.createElement('div');
     debugBar.className = 'ai-debug-bar';
+    const hasDebug = !!cell.aiDebug;
     debugBar.innerHTML = `
         <span class="debug-text"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> 检测到运行出错，点击让 AI 进行智能诊断</span>
-        <button class="ai-debug-btn"><i class="fa-solid fa-bug-slash" aria-hidden="true"></i> 一键 AI 调试</button>
+        <div style="display:flex;gap:8px;align-items:center">
+            ${hasDebug ? '<button class="ai-debug-btn secondary"><i class="fa-solid fa-eye" aria-hidden="true"></i> 查看诊断</button>' : ''}
+            <button class="ai-debug-btn primary"><i class="fa-solid fa-bug-slash" aria-hidden="true"></i> ${hasDebug && cell.aiDebug.isGenerating ? '诊断中…' : '一键 AI 调试'}</button>
+        </div>
     `;
-    
-    const debugBtn = debugBar.querySelector('.ai-debug-btn');
-    debugBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        callbacks.onDebug(cell.id, debugBtn);
-    });
-
+    const primaryBtn = debugBar.querySelector('.ai-debug-btn.primary');
+    if (primaryBtn) primaryBtn.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDebug(cell.id, primaryBtn); });
+    const sec = debugBar.querySelector('.ai-debug-btn.secondary');
+    if (sec) sec.addEventListener('click', (e) => { e.stopPropagation(); const el=document.getElementById(`debug_preview_${cell.id}`); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); });
     return debugBar;
 }
 
