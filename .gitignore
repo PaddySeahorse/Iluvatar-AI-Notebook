@@ -30,3 +30,4 @@ Thumbs.db
 
 # Chainlit auto-generated i18n files (regenerated on startup)
 .chainlit/translations/
+node_modules
