@@ -38,9 +38,9 @@ export async function initConfig() {
     return apiConfig;
 }
 
-// Save upstream model API config (localStorage + the backend host-side config
-// file ~/.Iluvatar-AI-Notebook/config.yaml; the backend also rewrites the
-// local LiteLLM Proxy model route from this triple)
+// Save upstream model API config (localStorage + the backend rewrites the
+// local LiteLLM Proxy model route from this triple). Returns
+// {ok, message?, errorCode?} so callers can react to e.g. manual management.
 export async function saveApiConfig(url, token, model) {
     apiConfig.url = url;
     apiConfig.token = token;
@@ -54,10 +54,16 @@ export async function saveApiConfig(url, token, model) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, token, model })
         });
-        return res.ok;
+        if (res.ok) return { ok: true };
+        const data = await res.json().catch(() => ({}));
+        return {
+            ok: false,
+            message: data.message || `保存失败（HTTP ${res.status}）`,
+            errorCode: data.error_code || '',
+        };
     } catch (e) {
         console.error('Failed to persist API config to the backend config file:', e);
-        return false;
+        return { ok: false, message: '写入服务器配置失败: ' + e.message, errorCode: '' };
     }
 }
 

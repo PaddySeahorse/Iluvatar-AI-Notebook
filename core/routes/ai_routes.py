@@ -15,38 +15,38 @@ from starlette.concurrency import run_in_threadpool
 
 from core import llm as llm_transport
 from core.errors import UpstreamAPIError
-from core.litellm_manager import litellm_manager
+from core.litellm_manager import is_manually_managed, litellm_manager, read_first_route
 from core.routes import json_body, state
-from core.user_config import save_model_config
 
 router = APIRouter()
 
 
 @router.get('/api/get_config')
 async def get_config(request: Request):
-    # Expose defaults loaded from env for initialization
+    # Expose the effective route (first model_list entry) for initialization,
+    # falling back to the environment-seeded defaults.
     s = state(request)
+    api_base, model_name = await run_in_threadpool(read_first_route)
     return {
-        'default_url': s.DEFAULT_API_URL,
-        'default_model': s.DEFAULT_API_MODEL,
+        'default_url': api_base or s.DEFAULT_API_URL,
+        'default_model': model_name or s.DEFAULT_API_MODEL,
     }
 
 
 @router.post('/api/save_config')
 async def save_config(request: Request):
-    """Persist the LiteLLM upstream model API config on the host machine.
+    """Persist the upstream model config via the local LiteLLM Proxy config.
 
     Request: ``{"url": "...", "token": "...", "model": "..."}``
 
     The values describe the **upstream model endpoint** that the self-hosted
     LiteLLM Proxy must route to (the OpenAI SDK always talks to the local
-    proxy, never to this address directly). They are written to the
-    ``OPENI_API_URL`` / ``OPENI_API_TOKEN`` / ``OPENI_API_MODEL`` keys of
-    ``~/.Iluvatar-AI-Notebook/config.yaml`` (other tracked keys are preserved),
-    the in-memory runtime defaults + ``os.environ`` are updated at the same
-    time so the new config takes effect without a restart, and the local
-    LiteLLM Proxy's ``model_list`` is rewritten + the proxy bounced so the new
-    route is live immediately.
+    proxy, never to this address directly). While the proxy config is under
+    manual management (advanced mode has hand-saved ``litellm_config.yaml``)
+    the write is refused with ``CONFIG_MANAGED_MANUALLY`` and the user is
+    directed to advanced mode. Otherwise the in-memory runtime defaults +
+    ``os.environ`` are updated and the local LiteLLM Proxy's ``model_list``
+    is rewritten + the proxy bounced so the new route is live immediately.
     """
     s = state(request)
     data = await json_body(request)
@@ -64,15 +64,13 @@ async def save_config(request: Request):
             },
         )
 
-    try:
-        await run_in_threadpool(save_model_config, url, token, model)
-    except OSError as e:
+    if is_manually_managed():
         return JSONResponse(
-            status_code=500,
+            status_code=409,
             content={
                 'error': True,
-                'error_code': 'CONFIG_WRITE_ERROR',
-                'message': f'写入配置文件失败: {e}',
+                'error_code': 'CONFIG_MANAGED_MANUALLY',
+                'message': 'LiteLLM 路由处于手动接管状态，请在高级模式中手动配置',
             },
         )
 
@@ -86,6 +84,12 @@ async def save_config(request: Request):
 
     # Rewrite the local LiteLLM Proxy's model route; blocking I/O off-loop.
     await run_in_threadpool(litellm_manager.sync_config, url, token, model)
+
+    api_base, model_name = await run_in_threadpool(read_first_route)
+    if api_base:
+        s.DEFAULT_API_URL = api_base
+    if model_name:
+        s.DEFAULT_API_MODEL = model_name
 
     return {'ok': True, 'message': 'API 配置已保存'}
 

@@ -40,12 +40,12 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# LLM 配置（env 优先，回退到共享运行时默认值；save_config / apply_saved_config
+# LLM 配置（env 优先，回退到共享运行时默认值；save_config / config_file 保存
 # 都会同步 env 与 app_state，因此两条链路的取值始终一致）
 # ---------------------------------------------------------------------------
 
 def _llm_config() -> Dict[str, str]:
-    """返回当前 LLM 连接三元组（环境变量优先，已由 app_fastapi 恢复配置）。"""
+    """返回当前 LLM 连接三元组（环境变量优先，已由 config 保存链路同步）。"""
     return {
         "url": os.environ.get("OPENI_API_URL", "") or app_state.DEFAULT_API_URL or "",
         "token": os.environ.get("OPENI_API_TOKEN", "") or app_state.DEFAULT_API_TOKEN or "",

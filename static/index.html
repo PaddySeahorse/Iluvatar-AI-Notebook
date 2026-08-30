@@ -212,11 +212,19 @@
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-card">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-gears" aria-hidden="true"></i> 模型 API 配置（LiteLLM 上游）</h2>
-                <button id="closeSettingsBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
+                <h2><i class="fa-solid fa-gears" aria-hidden="true"></i> 模型 API 配置</h2>
+                <div class="modal-header-actions">
+                    <label class="advanced-mode-switch" title="高级模式：直接编辑 ~/.Iluvatar-AI-Notebook/config.yaml">
+                        <span class="advanced-mode-switch-text">高级</span>
+                        <input type="checkbox" id="advancedModeToggle" class="advanced-toggle-input" autocomplete="off">
+                        <span class="advanced-toggle-switch" aria-hidden="true"></span>
+                    </label>
+                    <button id="closeSettingsBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
+                </div>
             </div>
             <div class="modal-body">
-                <p class="settings-desc">这里填写<strong>真实模型提供方</strong>的 OpenAI 兼容 API。应用自启动本地 LiteLLM Proxy（<code>http://localhost:4000/v1</code>），OpenAI SDK 固定请求该代理，代理再按下方配置把请求转发给真实模型。模型路由、密钥与预算管理请使用 LiteLLM 原生管理台。</p>
+                <div id="basicConfigView">
+                <p class="settings-desc">这里填写<strong>真实模型提供方</strong>的 OpenAI 兼容 API。应用自启动本地 LiteLLM Proxy（<code>http://localhost:4000/v1</code>），OpenAI SDK 固定请求该代理，代理再按下方配置把请求转发给真实模型。</p>
 
                 <div class="form-group">
                     <label for="apiUrlInput">上游模型 API 地址 (Base URL)</label>
@@ -240,18 +248,12 @@
                     <input type="text" id="modelInput" placeholder="dsv4" autocomplete="off" name="model">
                     <small>请求真实模型时携带的 model 字段，例如：dsv4</small>
                 </div>
+                </div>
 
-                <div class="form-group litellm-ui-group">
-                    <label><i class="fa-solid fa-sliders" aria-hidden="true"></i> LiteLLM 管理台</label>
-                    <div class="litellm-ui-actions">
-                        <span id="litellmUiUrl" class="litellm-ui-url" title="经应用端口反向代理的同源地址">/ui/</span>
-                        <button id="openLitellmUiBtn" type="button" class="modal-btn secondary small">新窗口打开</button>
-                        <button id="toggleLitellmUiBtn" type="button" class="modal-btn secondary small">页内预览</button>
-                    </div>
-                    <small>模型路由、虚拟密钥与用量管理（LiteLLM Proxy 原生 WebUI）</small>
-                    <div id="litellmUiFrameWrap" class="litellm-ui-frame-wrap" hidden>
-                        <iframe id="litellmUiFrame" title="LiteLLM Proxy WebUI" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
-                    </div>
+                <div id="advancedConfigView" hidden>
+                    <p class="settings-desc">直接编辑 LiteLLM 代理配置文件 <code id="configFilePath">~/.Iluvatar-AI-Notebook/litellm_config.yaml</code>。保存后代理自动重启生效；失败时自动回滚并展示代理日志摘要。手动接管后，基础模式表单的保存将被拒绝。</p>
+                    <div id="configFileNotice" class="settings-desc" hidden></div>
+                    <div id="configEditorContainer" class="config-editor-container"></div>
                 </div>
             </div>
             <div class="modal-footer">

@@ -490,21 +490,6 @@ async function refreshNotebooksListFromServer() {
 }
 
 // Bind Global UI Elements
-function deriveLitellmUiUrl(url) {
-    // External networks can only reach the Flask port, so the WebUI is
-    // consumed same-origin through the backend's reverse proxy.
-    return '/ui/';
-}
-
-function refreshLitellmUiUrl() {
-    const el = document.getElementById('litellmUiUrl');
-    if (el) {
-        el.textContent = deriveLitellmUiUrl();
-        el.title = '经应用端口反向代理的同源地址';
-    }
-    return deriveLitellmUiUrl();
-}
-
 function setupEventListeners() {
     const refreshVarsBtn = document.getElementById('refreshVarsBtn');
     if (refreshVarsBtn) {
@@ -682,17 +667,89 @@ function setupEventListeners() {
         activeEditors.forEach(editor => {
             editor.setOption('theme', cmTheme);
         });
+        if (configFileCm) {
+            configFileCm.setOption('theme', cmTheme);
+        }
     });
 
     // Settings Modal
     const settingsModal = document.getElementById('settingsModal');
     const apiUrlInput = document.getElementById('apiUrlInput');
-    const litellmUiFrameWrap = document.getElementById('litellmUiFrameWrap');
-    const litellmUiFrame = document.getElementById('litellmUiFrame');
+    const advancedModeToggle = document.getElementById('advancedModeToggle');
+    const basicConfigView = document.getElementById('basicConfigView');
+    const advancedConfigView = document.getElementById('advancedConfigView');
+
+    let configFileCm = null;
+
+    function isAdvancedMode() {
+        return advancedModeToggle.checked;
+    }
+
+    // Lazily create the shared CodeMirror editor for the advanced view using
+    // the project's locally-vendored CodeMirror (window.CodeMirror UMD global).
+    function getConfigFileEditor() {
+        if (configFileCm) return configFileCm;
+        const isDark = document.body.classList.contains('light-theme');
+        configFileCm = CodeMirror(document.getElementById('configEditorContainer'), {
+            value: '',
+            lineNumbers: true,
+            indentUnit: 2,
+            viewportMargin: Infinity,
+            theme: isDark ? 'neo' : 'dracula',
+        });
+        return configFileCm;
+    }
+
+    async function refreshConfigFileEditor() {
+        let data = {};
+        try {
+            const res = await fetch('/api/config_file');
+            data = res.ok ? await res.json() : {};
+        } catch (e) {
+            console.error('Failed to load config file:', e);
+        }
+        getConfigFileEditor().setValue(data.content || '');
+        const pathEl = document.getElementById('configFilePath');
+        const noticeEl = document.getElementById('configFileNotice');
+        if (pathEl && data.path) {
+            pathEl.textContent = data.path;
+        }
+        if (noticeEl) {
+            if (data.preview) {
+                noticeEl.textContent = '当前为预览内容（文件尚未写入磁盘），保存后生效';
+                noticeEl.hidden = false;
+            } else if (data.managed_manually) {
+                noticeEl.textContent = 'LiteLLM 路由处于手动接管状态：基础模式表单的保存将被拒绝';
+                noticeEl.hidden = false;
+            } else {
+                noticeEl.hidden = true;
+            }
+        }
+    }
+
+    // Restore persisted advanced-mode toggle state, then show the matching view
+    // (the advanced view is an independent CodeMirror editor, not the basic form).
+    advancedModeToggle.checked = localStorage.getItem('openi_advanced_mode') === '1';
+    basicConfigView.hidden = advancedModeToggle.checked;
+    advancedConfigView.hidden = !advancedModeToggle.checked;
+
+    advancedModeToggle.addEventListener('change', () => {
+        const on = advancedModeToggle.checked;
+        localStorage.setItem('openi_advanced_mode', on ? '1' : '0');
+        basicConfigView.hidden = on;
+        if (on) {
+            advancedConfigView.hidden = false;
+            refreshConfigFileEditor();
+        } else {
+            advancedConfigView.hidden = true;
+        }
+    });
 
     document.getElementById('settingsBtn').addEventListener('click', () => {
         settingsModal.classList.add('open');
-        refreshLitellmUiUrl();
+        if (isAdvancedMode()) {
+            refreshConfigFileEditor();
+        }
     });
     document.getElementById('closeSettingsBtn').addEventListener('click', () => {
         settingsModal.classList.remove('open');
@@ -708,32 +765,55 @@ function setupEventListeners() {
             icon.className = 'fa-solid fa-eye';
         }
     });
-    apiUrlInput.addEventListener('input', refreshLitellmUiUrl);
-
-    document.getElementById('openLitellmUiBtn').addEventListener('click', () => {
-        window.open(deriveLitellmUiUrl(), '_blank', 'noopener');
-    });
-
-    document.getElementById('toggleLitellmUiBtn').addEventListener('click', () => {
-        const uiUrl = deriveLitellmUiUrl();
-        const willShow = litellmUiFrameWrap.hidden;
-        litellmUiFrameWrap.hidden = !willShow;
-        if (willShow && litellmUiFrame.src !== uiUrl) {
-            litellmUiFrame.src = uiUrl;
-        }
-    });
-
     document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+        if (isAdvancedMode()) {
+            let success = false;
+            let message = 'config.yaml 已保存并应用';
+            try {
+                const res = await fetch('/api/config_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: getConfigFileEditor().getValue() }),
+                });
+                const data = await res.json().catch(() => ({}));
+                success = res.ok;
+                if (!success) {
+                    message = data.message || `写入失败（HTTP ${res.status}）`;
+                } else if (data.message) {
+                    message = data.message;
+                }
+            } catch (e) {
+                message = '写入服务器配置文件失败: ' + e.message;
+            }
+            if (success) {
+                settingsModal.classList.remove('open');
+            }
+            showFloatingNotification(message);
+            return;
+        }
+
         const url = apiUrlInput.value.trim();
         const token = document.getElementById('apiTokenInput').value.trim();
         const model = document.getElementById('modelInput').value.trim();
 
-        const persisted = await saveApiConfig(url, token, model);
-
-        settingsModal.classList.remove('open');
-        showFloatingNotification(
-            persisted ? '上游模型配置已保存，LiteLLM 代理已更新' : '已保存到浏览器，但写入服务器配置文件失败'
-        );
+        const saved = await saveApiConfig(url, token, model);
+        if (saved.ok) {
+            settingsModal.classList.remove('open');
+            showFloatingNotification('上游模型配置已保存，LiteLLM 代理已更新');
+            return;
+        }
+        if (saved.errorCode === 'CONFIG_MANAGED_MANUALLY') {
+            showFloatingNotification(saved.message || 'LiteLLM 路由处于手动接管状态，请在高级模式中手动配置');
+            if (!isAdvancedMode()) {
+                advancedModeToggle.checked = true;
+                localStorage.setItem('openi_advanced_mode', '1');
+                basicConfigView.hidden = true;
+                advancedConfigView.hidden = false;
+                refreshConfigFileEditor();
+            }
+            return;
+        }
+        showFloatingNotification(saved.message || '写入服务器配置失败');
     });
 
     document.getElementById('resetSettingsBtn').addEventListener('click', () => {
@@ -743,6 +823,9 @@ function setupEventListeners() {
                 document.getElementById('apiUrlInput').value = data.default_url;
                 document.getElementById('apiTokenInput').value = '';
                 document.getElementById('modelInput').value = data.default_model;
+                if (isAdvancedMode()) {
+                    refreshConfigFileEditor();
+                }
             });
     });
 
@@ -1706,7 +1789,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (apiEl) apiEl.value = config.url;
         if (tokenEl) tokenEl.value = config.token;
         if (modelEl) modelEl.value = config.model;
-        refreshLitellmUiUrl();
 
         // 2. Fetch server notebooks list and load active notebook
         fetchNotebooksList()

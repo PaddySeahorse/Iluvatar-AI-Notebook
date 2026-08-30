@@ -43,7 +43,6 @@ from core.observability import (
 from core.litellm_manager import get_litellm_config_path, litellm_manager, write_config
 from core.routes import register_error_handlers, register_routers
 from core.state import app_state
-from core.user_config import apply_saved_config
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +53,6 @@ _log_level = getattr(
     logging, os.environ.get('LOG_LEVEL', 'INFO').upper(), logging.INFO
 )
 configure_logging(level=_log_level)
-
-# 从 ~/.Iluvatar-AI-Notebook/config.yaml 恢复（首次运行自环境种子化）
-apply_saved_config()
-# state.py 的 DEFAULT_API_* 模块常量在 env 恢复前已初始化；配置恢复进
-# os.environ 后把运行时默认值同步为已保存值，get_config / agent 默认请求
-# 才会使用用户保存的上游模型（而非模块默认）。
-for _key in ('OPENI_API_URL', 'OPENI_API_TOKEN', 'OPENI_API_MODEL'):
-    _saved = os.environ.get(_key)
-    if _saved:
-        setattr(
-            app_state,
-            'DEFAULT_API_' + _key.replace('OPENI_API_', ''),
-            _saved,
-        )
 
 
 def _cleanup_gpu():

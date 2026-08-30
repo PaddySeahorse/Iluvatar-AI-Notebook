@@ -124,3 +124,126 @@ class TestShutdown:
         monkeypatch.setattr(proc, 'wait', lambda timeout=10: 0)
         m.shutdown()
         assert m._proc is None
+
+
+class TestManualManagement:
+    def test_marker_roundtrip(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        assert lm.is_manually_managed() is False
+        lm.mark_manually_managed()
+        assert lm.is_manually_managed() is True
+        assert os.path.exists(lm.get_manual_marker_path())
+
+
+class TestApplyConfigWithRollback:
+    def test_success_writes_content_and_marks_manual(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        lm.write_config('https://old.example/v1', 'sk-old', 'old-model')
+        m = lm.LitellmManager()
+        starts = []
+        monkeypatch.setattr(m, 'ensure_running', lambda: starts.append(1) or True)
+
+        new_content = (
+            'model_list:\n'
+            '- model_name: new-model\n'
+            '  litellm_params:\n'
+            '    model: openai/new-model\n'
+            '    api_key: sk-new\n'
+            '    api_base: https://new.example/v1\n'
+        )
+        ok, summary = m.apply_config_with_rollback(new_content)
+
+        assert (ok, summary) == (True, '')
+        assert open(lm.get_litellm_config_path(), encoding='utf-8').read() == new_content
+        assert (os.stat(lm.get_litellm_config_path()).st_mode & 0o777) == 0o600
+        assert lm.is_manually_managed() is True
+        assert starts == [1]
+
+    def test_failure_restores_previous_content(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        old_path = lm.get_litellm_config_path()
+        lm.write_config('https://old.example/v1', 'sk-old', 'old-model')
+        original = open(old_path, encoding='utf-8').read()
+        m = lm.LitellmManager()
+        monkeypatch.setattr(m, 'ensure_running', lambda: False)
+
+        ok, summary = m.apply_config_with_rollback('model_list: []\n')
+
+        assert ok is False
+        assert open(old_path, encoding='utf-8').read() == original
+
+    def test_failure_removes_file_when_no_previous_content(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        path = lm.get_litellm_config_path()
+        m = lm.LitellmManager()
+        monkeypatch.setattr(m, 'ensure_running', lambda: False)
+
+        ok, _summary = m.apply_config_with_rollback('model_list: []\n')
+
+        assert ok is False
+        assert not os.path.exists(path)
+
+    def test_failure_summary_captures_new_log_output(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        log_path = lm.get_litellm_log_path()
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write('previous boot output\n')
+        m = lm.LitellmManager()
+
+        def fail_and_log():
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write('\x1b[31mERROR: bad model config\x1b[0m\n')
+            return False
+
+        monkeypatch.setattr(m, 'ensure_running', fail_and_log)
+        ok, summary = m.apply_config_with_rollback('model_list: []\n')
+
+        assert ok is False
+        assert 'ERROR: bad model config' in summary
+        assert 'previous boot output' not in summary
+
+
+class TestReadFirstRoute:
+    def test_reads_generated_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        lm.write_config('https://api.upstream.example/v1', 'sk', 'dsv4')
+        assert lm.read_first_route() == ('https://api.upstream.example/v1', 'dsv4')
+
+    def test_reads_first_of_multiple_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        path = lm.get_litellm_config_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(
+                'model_list:\n'
+                "- model_name: first\n"
+                '  litellm_params:\n'
+                '    model: openai/first\n'
+                '    api_base: https://first.example/v1\n'
+                "- model_name: second\n"
+                '  litellm_params:\n'
+                '    model: openai/second\n'
+                '    api_base: https://second.example/v1\n'
+            )
+        assert lm.read_first_route() == ('https://first.example/v1', 'first')
+
+    def test_missing_file_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        assert lm.read_first_route() == ('', '')
+
+    def test_corrupt_yaml_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        path = lm.get_litellm_config_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('model_list: [unclosed\n')
+        assert lm.read_first_route() == ('', '')
+
+    def test_missing_model_list_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('HOME', str(tmp_path))
+        path = lm.get_litellm_config_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('general_settings: {}\n')
+        assert lm.read_first_route() == ('', '')

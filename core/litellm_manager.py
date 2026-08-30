@@ -20,6 +20,7 @@ error, so the notebook still boots without the optional dependency.
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -37,9 +38,12 @@ LITELLM_PROXY_URL = os.environ.get(
     'LITELLM_PROXY_URL', f'http://localhost:{LITELLM_PORT}'
 )
 LITELLM_CONFIG_NAME = 'litellm_config.yaml'
+MANUAL_MARKER_NAME = 'litellm_config.manual'
 _READY_TIMEOUT = 45
 _READY_POLL = 0.5
 _STARTUP_LOG_NAME = 'litellm_proxy.log'
+_ERROR_SUMMARY_LINES = 40
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 
 
 def get_litellm_config_path():
@@ -50,6 +54,66 @@ def get_litellm_config_path():
 def get_litellm_log_path():
     """Return the host-side LiteLLM proxy stdout/stderr log path."""
     return os.path.join(get_config_dir(), _STARTUP_LOG_NAME)
+
+
+def get_manual_marker_path():
+    """Return the manual-management marker file path."""
+    return os.path.join(get_config_dir(), MANUAL_MARKER_NAME)
+
+
+def is_manually_managed():
+    """Return True when the user has hand-saved the proxy config."""
+    return os.path.exists(get_manual_marker_path())
+
+
+def mark_manually_managed():
+    """Create the manual-management marker file (best-effort)."""
+    try:
+        os.makedirs(os.path.dirname(get_manual_marker_path()), exist_ok=True)
+        with open(get_manual_marker_path(), 'a', encoding='utf-8'):
+            pass
+    except OSError as e:
+        logger.warning('litellm_manual_marker_failed', extra={'error': str(e)})
+
+
+def read_first_route():
+    """Return ``(api_base, model_name)`` of the first ``model_list`` entry.
+
+    Returns empty strings when the config is missing, corrupt or has no
+    usable first entry, so callers can fall back to environment seeds.
+    """
+    try:
+        with open(get_litellm_config_path(), 'r', encoding='utf-8') as f:
+            payload = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError):
+        return '', ''
+    if not isinstance(payload, dict):
+        return '', ''
+    model_list = payload.get('model_list')
+    if not isinstance(model_list, list) or not model_list:
+        return '', ''
+    first = model_list[0]
+    if not isinstance(first, dict):
+        return '', ''
+    params = first.get('litellm_params')
+    api_base = ''
+    if isinstance(params, dict):
+        api_base = str(params.get('api_base') or '')
+    return api_base, str(first.get('model_name') or '')
+
+
+def _read_log_tail(log_path, offset, lines=_ERROR_SUMMARY_LINES):
+    """Return the ANSI-stripped log tail after ``offset`` for error reports."""
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            f.seek(offset)
+            text = f.read()
+    except OSError:
+        return ''
+    cleaned = _ANSI_RE.sub('', text).strip()
+    if not cleaned:
+        return ''
+    return '\n'.join(cleaned.splitlines()[-lines:])
 
 
 def build_litellm_config(url, token, model):
@@ -197,6 +261,55 @@ class LitellmManager:
         if self._proc is not None and self._proc.poll() is None:
             self._stop()
         return self.ensure_running()
+
+    def apply_config_with_rollback(self, content):
+        """Write raw proxy config, bounce the proxy, roll back on failure.
+
+        Returns ``(ok, error_summary)``. On success the manual-management
+        marker file is created. On failure the previous content (or absence)
+        is restored, the proxy is restarted best-effort, and the tail of the
+        proxy log since the attempt is returned as the error summary.
+        """
+        path = get_litellm_config_path()
+        old_content = None
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                old_content = f.read()
+        except OSError:
+            old_content = None
+        log_path = get_litellm_log_path()
+        try:
+            log_offset = os.path.getsize(log_path)
+        except OSError:
+            log_offset = 0
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            os.chmod(path, 0o600)
+        except OSError as e:
+            return False, f'写入配置文件失败: {e}'
+        if self._proc is not None and self._proc.poll() is None:
+            self._stop()
+        if self.ensure_running():
+            mark_manually_managed()
+            return True, ''
+        summary = _read_log_tail(log_path, log_offset)
+        self._stop()
+        try:
+            if old_content is None:
+                try:
+                    os.unlink(path)
+                except FileNotFoundError:
+                    pass
+            else:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(old_content)
+                os.chmod(path, 0o600)
+        except OSError:
+            pass
+        self.ensure_running()
+        return False, summary
 
     def _stop(self):
         proc, self._proc = self._proc, None

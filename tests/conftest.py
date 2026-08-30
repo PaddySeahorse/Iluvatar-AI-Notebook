@@ -1,9 +1,8 @@
 """Shared pytest fixtures.
 
-``import app`` triggers ``core.user_config.apply_saved_config()``, which reads
-and seeds ``~/.Iluvatar-AI-Notebook/config.yaml``. ``pytest_configure`` runs
-before test-module collection, so redirecting ``HOME`` here keeps that
-module-level side effect inside a throwaway directory instead of the real
+``HOME`` is redirected to a throwaway directory before test-module
+collection, so anything touching ``~/.Iluvatar-AI-Notebook`` (e.g. the
+LiteLLM proxy config) stays inside a temporary home instead of the real
 host home.
 """
 
