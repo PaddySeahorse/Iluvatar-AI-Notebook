@@ -21,8 +21,10 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import sys
 import threading
+from pathlib import Path
 from typing import Dict, List
 
 # 项目根目录入 sys.path，保证 ``core.*`` 可导入（mount_chainlit 也会注入，
@@ -37,6 +39,101 @@ from core.agent import agent_loop  # noqa: E402
 from core.state import app_state  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+_CHAT_HISTORY_DIR = Path.home() / ".Iluvatar-AI-Notebook"
+_CHAT_HISTORY_DB = _CHAT_HISTORY_DIR / "chat_history.db"
+
+
+def _ensure_chat_history_db(db_path: Path = _CHAT_HISTORY_DB) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    ddl = """
+    CREATE TABLE IF NOT EXISTS users (
+        "id" TEXT PRIMARY KEY,
+        "identifier" TEXT UNIQUE NOT NULL,
+        "createdAt" TEXT,
+        "metadata" TEXT
+    );
+    CREATE TABLE IF NOT EXISTS threads (
+        "id" TEXT PRIMARY KEY,
+        "createdAt" TEXT,
+        "name" TEXT,
+        "userId" TEXT,
+        "userIdentifier" TEXT,
+        "tags" TEXT,
+        "metadata" TEXT
+    );
+    CREATE TABLE IF NOT EXISTS steps (
+        "id" TEXT PRIMARY KEY,
+        "name" TEXT,
+        "type" TEXT,
+        "threadId" TEXT,
+        "parentId" TEXT,
+        "streaming" INTEGER,
+        "waitForAnswer" INTEGER,
+        "isError" INTEGER,
+        "metadata" TEXT,
+        "tags" TEXT,
+        "input" TEXT,
+        "output" TEXT,
+        "createdAt" TEXT,
+        "start" TEXT,
+        "end" TEXT,
+        "generation" TEXT,
+        "showInput" TEXT,
+        "language" TEXT,
+        FOREIGN KEY("threadId") REFERENCES threads("id") ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS elements (
+        "id" TEXT PRIMARY KEY,
+        "threadId" TEXT,
+        "type" TEXT,
+        "chainlitKey" TEXT,
+        "url" TEXT,
+        "objectKey" TEXT,
+        "name" TEXT,
+        "display" TEXT,
+        "size" INTEGER,
+        "language" TEXT,
+        "page" INTEGER,
+        "forId" TEXT,
+        "mime" TEXT,
+        "props" TEXT,
+        "autoPlay" INTEGER,
+        "playerConfig" TEXT,
+        FOREIGN KEY("threadId") REFERENCES threads("id") ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS feedbacks (
+        "id" TEXT PRIMARY KEY,
+        "forId" TEXT,
+        "value" INTEGER,
+        "comment" TEXT,
+        FOREIGN KEY("forId") REFERENCES steps("id") ON DELETE CASCADE
+    );
+    """
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.executescript(ddl)
+    except Exception as e:
+        logger.warning(f"chat_history db init failed: {e}")
+
+
+try:
+    from chainlit.data.sql_alchemy import SQLAlchemyDataLayer as _SQLAlchemyDataLayer
+except ImportError:
+    try:
+        from chainlit.data.sqlalchemy import SQLAlchemyDataLayer as _SQLAlchemyDataLayer
+    except ImportError:
+        _SQLAlchemyDataLayer = None  # type: ignore
+
+
+@cl.data_layer
+def data_layer():
+    if _SQLAlchemyDataLayer is None:
+        logger.warning("SQLAlchemyDataLayer unavailable, chat history persistence disabled")
+        return None
+    _ensure_chat_history_db()
+    conninfo = f"sqlite+aiosqlite:///{_CHAT_HISTORY_DB}"
+    return _SQLAlchemyDataLayer(conninfo=conninfo, show_logger=False)
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +197,32 @@ async def on_chat_start() -> None:
                 "应用会自启动本地 LiteLLM Proxy 并自动路由到该模型。"
             ),
         ).send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: Dict) -> None:
+    steps = thread.get("steps") or []
+    history: List[Dict] = []
+    try:
+        ordered = sorted(steps, key=lambda s: s.get("createdAt") or "")
+    except Exception:
+        ordered = steps
+    for step in ordered:
+        t = step.get("type")
+        if t == "user_message":
+            content = step.get("output") or step.get("input") or ""
+            content = content.strip() if isinstance(content, str) else str(content)
+            if content:
+                history.append({"role": "user", "content": content})
+        elif t == "assistant_message":
+            content = step.get("output") or step.get("input") or ""
+            content = content.strip() if isinstance(content, str) else str(content)
+            if content:
+                history.append({"role": "assistant", "content": content})
+    cl.user_session.set("history", history)
+    cl.user_session.set("include_context", True)
+    cl.user_session.set("max_steps", 0)
+    logger.info(f"chat_resume restored {len(history)} messages from thread {thread.get('id')}")
 
 
 # ---------------------------------------------------------------------------

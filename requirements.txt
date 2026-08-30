@@ -28,6 +28,9 @@ matplotlib>=3.7
 
 # ── Chainlit 聊天界面（挂载到 /agent）───────────────
 chainlit>=2.12.0
+aiosqlite>=0.20
+sqlalchemy>=2.0
+greenlet>=3.0  # SQLAlchemy async 所需
 
 # ── 开发 / 测试 ────────────────────────────────────
 pytest>=7.0
