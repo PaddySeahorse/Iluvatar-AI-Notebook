@@ -112,6 +112,8 @@ OPENI_API_MODEL=dsv4
 
 也可启动后在 UI 右上角「设置」面板填写上游模型 API 配置（Base URL / API Key / 模型名），保存后写入 `config.yaml` 与 `litellm_config.yaml` 并热重启代理，无需重启服务。
 
+聊天历史（`/agent`）通过 Chainlit Data Layer 持久化到 `~/.Iluvatar-AI-Notebook/chat_history.db`（SQLite + aiosqlite/sqlalchemy，`@cl.data_layer` 自动建表），刷新或重启后侧边栏仍可见历史线程并可点开恢复；`@cl.on_chat_resume` 会把旧线程的 user/assistant 消息重建为 `cl.user_session["history"]` 供 ReAct agent 多轮上下文使用。依赖已写入 `requirements.txt`/`pyproject.toml`：`aiosqlite`、`sqlalchemy`、`greenlet`。
+
 ### 启动
 
 > **约束**：启动文件必须是 Python；用户仅能访问 `OPENI_SELF_PORT` 指定的端口（默认 5000），不要绑定其他端口，API 通过同进程 `/api/*` 代理。

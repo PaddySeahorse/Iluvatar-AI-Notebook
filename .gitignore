@@ -31,3 +31,7 @@ Thumbs.db
 # Chainlit auto-generated i18n files (regenerated on startup)
 .chainlit/translations/
 node_modules
+
+# Chainlit chat history (SQLite, persisted in ~/.Iluvatar-AI-Notebook/)
+*.db
+chat_history.db
