@@ -491,6 +491,13 @@ export function renderAiDebugPreview(cell, callbacks) {
         ow.className = 'suggestion-btn accept-overwrite';
         ow.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> 覆盖';
         ow.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onAcceptDebugOverwrite(cell.id, dbg.code); });
+        const fixRun = document.createElement('button');
+        fixRun.className = 'suggestion-btn accept-overwrite';
+        fixRun.style.background = 'var(--accent-purple)';
+        fixRun.style.color = '#fff';
+        fixRun.innerHTML = '<i class="fa-solid fa-bolt" aria-hidden="true"></i> 修复并重跑';
+        fixRun.title = '覆盖并立即重新运行';
+        fixRun.addEventListener('click', (e) => { e.stopPropagation(); if (callbacks.onFixAndRerun) callbacks.onFixAndRerun(cell.id, dbg.code); else callbacks.onAcceptDebugOverwrite(cell.id, dbg.code); });
         const ins = document.createElement('button');
         ins.className = 'suggestion-btn accept-insert';
         ins.innerHTML = '<i class="fa-solid fa-plus" aria-hidden="true"></i> 插入新 Cell';
@@ -503,7 +510,14 @@ export function renderAiDebugPreview(cell, callbacks) {
         diffBtn.className = 'suggestion-btn';
         diffBtn.innerHTML = `<i class="fa-solid fa-code-compare" aria-hidden="true"></i> ${dbg.showDiff ? '隐藏差异' : '对比差异'}`;
         diffBtn.addEventListener('click', (e) => { e.stopPropagation(); dbg.showDiff = !dbg.showDiff; if (callbacks.onToggleDiff) callbacks.onToggleDiff(cell.id); else location.reload(); });
-        actions.appendChild(ow); actions.appendChild(ins); actions.appendChild(cp); actions.appendChild(diffBtn);
+        actions.appendChild(ow); actions.appendChild(fixRun); actions.appendChild(ins); actions.appendChild(cp); actions.appendChild(diffBtn);
+    }
+    if (!dbg.isGenerating && dbg.error) {
+        const retry = document.createElement('button');
+        retry.className = 'suggestion-btn accept-overwrite';
+        retry.innerHTML = '<i class="fa-solid fa-rotate" aria-hidden="true"></i> 重试';
+        retry.addEventListener('click', (e) => { e.stopPropagation(); callbacks.onDebug(cell.id, retry); });
+        actions.appendChild(retry);
     }
     const dis = document.createElement('button');
     dis.className = 'suggestion-btn discard';
@@ -696,6 +710,23 @@ export function renderCells(cells, activeCellId, callbacks) {
                 });
                 inputArea.appendChild(rendered);
             }
+            const mdCopilotBar = document.createElement('div');
+            mdCopilotBar.className = 'cell-ai-assist-bar markdown-ai-bar';
+            mdCopilotBar.innerHTML = `
+                <i class="fa-solid fa-wand-magic-sparkles ai-icon-sparkle" aria-hidden="true"></i>
+                <input type="text" class="ai-assist-input" placeholder="✨ 基于本段描述生成 Python 代码到下方新单元格…" autocomplete="off" aria-label="Markdown 生成代码提示词">
+                <button class="ai-assist-btn">生成代码</button>
+            `;
+            const mdInput = mdCopilotBar.querySelector('.ai-assist-input');
+            const mdBtn = mdCopilotBar.querySelector('.ai-assist-btn');
+            const triggerMd = (e) => {
+                e.stopPropagation();
+                const prompt = (mdInput.value.trim() || cell.content.trim());
+                if (prompt) callbacks.onMarkdownAiGenerate(cell.id, prompt, mdBtn);
+            };
+            mdBtn.addEventListener('click', triggerMd);
+            mdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); triggerMd(e); } });
+            inputArea.appendChild(mdCopilotBar);
         }
         
         cellBody.appendChild(inputArea);

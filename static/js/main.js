@@ -201,6 +201,7 @@ const rendererCallbacks = {
     },
     onCodeChangeDebounced: (id, code) => debounceLintCell(id, code),
     onAiAssist: (id, prompt, btn) => runCellAiAssist(id, prompt, btn),
+    onMarkdownAiGenerate: (id, prompt, btn) => runMarkdownAiGenerate(id, prompt, btn),
     onDebug: (id, btn) => runCellDebug(id, btn),
     onExplainCell: (id) => runCellExplain(id),
     onAcceptDebugOverwrite: (id, code) => {
@@ -215,6 +216,10 @@ const rendererCallbacks = {
         if (cell) delete cell.aiDebug;
         state.activeCellId = newCell.id;
         triggerRender(); saveNotebookToLocalStorage(); showFloatingNotification('已插入修复代码为新单元格！'); saveDebugHistory(cell ? cell.content : '', code, true);
+    },
+    onFixAndRerun: (id, code) => {
+        const cell = state.cells.find(c => c.id === id);
+        if (cell) { cell.content = code; delete cell.aiDebug; triggerRender(); saveNotebookToLocalStorage(); showFloatingNotification('已覆盖并重新执行…'); try { saveDebugHistory(cell.content, code, true); } catch(e){} runCell(id); }
     },
     onDiscardDebug: (id) => {
         const cell = state.cells.find(c => c.id === id);
@@ -1422,6 +1427,21 @@ async function runCellAiAssist(id, prompt, buttonElement) {
     }
 }
 
+async function runMarkdownAiGenerate(id, prompt, buttonElement) {
+    const mdCell = state.cells.find(c => c.id === id);
+    if (!mdCell) return;
+    const idx = state.cells.findIndex(c => c.id === id);
+    const newCell = { id: 'cell_' + Math.random().toString(36).substr(2, 9), type: 'code', content: '', output: null, elapsedTime: null, success: true, isExecuting: false };
+    state.cells.splice(idx + 1, 0, newCell);
+    state.activeCellId = newCell.id;
+    triggerRender();
+    saveNotebookToLocalStorage();
+    showFloatingNotification('已基于 Markdown 创建新代码单元格，正在生成…');
+    const mergedPrompt = `基于以下 Markdown 描述生成 Python 代码：\n${mdCell.content}\n\n补充要求：${prompt}`;
+    await runCellAiAssist(newCell.id, mergedPrompt, buttonElement);
+    setTimeout(() => { const el = document.getElementById(newCell.id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+}
+
 function stripAnsi(str) { return (str || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''); }
 function saveDebugHistory(original, fixed, success) {
     try {
@@ -1469,24 +1489,33 @@ async function runCellDebug(id, buttonElement) {
     cell.aiDebug = { code: '', diagnosis: '', isGenerating: true, showDiff: false, error: '' };
     triggerRender();
     saveNotebookToLocalStorage();
+    setTimeout(() => { const el = document.getElementById(`debug_preview_${cell.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80);
     const messages = [
         { role: 'system', content: '你是天数智芯 Notebook 的 Python 调试助手。先简洁分析错误原因（中文），然后只输出修复后的完整 Python 代码，用 ```python 包裹。不要输出多余解释。' },
         { role: 'user', content: userPrompt }
     ];
     const cleanLlmCode = (raw) => {
         let t = (raw || '').trim();
-        const m = t.match(/```python([\s\S]*?)```/);
-        if (m) return m[1].trim();
-        const m2 = t.match(/```([\s\S]*?)```/);
-        if (m2) return m2[1].trim();
-        t = t.replace(/^```python\s*/,'').replace(/^```\s*/,'').replace(/```$/,'');
-        t = t.replace(/^(Here is|修复后|原因).*?\n+/i,'');
-        return t.trim();
+        if (!t) return '';
+        const fences = [...t.matchAll(/```(?:python)?\s*([\s\S]*?)```/gi)];
+        if (fences.length) {
+            let best = fences.map(m => m[1].trim()).filter(s => s.length > 5).sort((a,b) => b.length - a.length)[0];
+            if (best) return best;
+        }
+        t = t.replace(/^```python\s*/i,'').replace(/^```\s*/,'').replace(/```$/,'').trim();
+        const lines = t.split('\n');
+        const idx = lines.findIndex(l => /^\s*(import |from |def |class |for |while |if |try:|except|print\(|plt\.|np\.|x\s*=|y\s*=)/.test(l));
+        if (idx > 0) t = lines.slice(idx).join('\n').trim();
+        t = t.replace(/^(Here is|修复后|修复代码[:：]?|原因[:：]?.*?\n+|分析[:：]?.*?\n+)/i,'').trim();
+        if (t.length > 10) return t;
+        return (raw || '').trim();
     };
     const extractDiagnosis = (raw) => {
         const parts = raw.split('```');
         const before = (parts[0] || '').trim();
         if (before.length > 10 && before.length < 500) return before.slice(0,400);
+        const after = (parts[parts.length-1] || '').trim();
+        if (after.length > 10 && after.length < 300 && !after.includes('import ')) return after.slice(0,300);
         return '';
     };
     try {
@@ -1506,6 +1535,7 @@ async function runCellDebug(id, buttonElement) {
         cell.aiDebug.isGenerating = false;
         if (!cell.aiDebug.code) cell.aiDebug.error = '未解析到修复代码，请重试';
         triggerRender(); saveNotebookToLocalStorage();
+        setTimeout(() => { const el = document.getElementById(`debug_preview_${cell.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80);
         saveDebugHistory(cleanCode, cell.aiDebug.code, !cell.aiDebug.error);
         showFloatingNotification(cell.aiDebug.error ? '诊断完成但解析失败' : 'AI 诊断完成');
     } catch (e) {
@@ -1517,12 +1547,14 @@ async function runCellDebug(id, buttonElement) {
             cell.aiDebug.isGenerating = false;
             if (!cell.aiDebug.code) cell.aiDebug.error = reply.slice(0,500);
             triggerRender(); saveNotebookToLocalStorage();
+            setTimeout(() => { const el = document.getElementById(`debug_preview_${cell.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80);
             saveDebugHistory(cleanCode, cell.aiDebug.code, !cell.aiDebug.error);
             showFloatingNotification(cell.aiDebug.error ? '诊断失败: '+e.message : 'AI 诊断完成');
         } catch (e2) {
             cell.aiDebug.isGenerating = false;
             cell.aiDebug.error = e2.message || String(e2);
             triggerRender();
+            setTimeout(() => { const el = document.getElementById(`debug_preview_${cell.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80);
             showFloatingNotification('AI 调试失败: ' + cell.aiDebug.error + ' 请检查设置中的 API 配置');
         }
     } finally {
