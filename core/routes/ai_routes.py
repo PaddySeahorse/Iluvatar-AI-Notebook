@@ -94,6 +94,23 @@ async def save_config(request: Request):
     return {'ok': True, 'message': 'API 配置已保存'}
 
 
+@router.get('/api/health_check')
+async def health_check(request: Request):
+    s = state(request)
+    url = s.DEFAULT_API_URL
+    token = s.DEFAULT_API_TOKEN
+    model = s.DEFAULT_API_MODEL
+    q = request.query_params
+    if q.get('url'):
+        url = q.get('url')
+    if q.get('token') is not None:
+        token = q.get('token')
+    if q.get('model'):
+        model = q.get('model')
+    result = await run_in_threadpool(llm_transport.check_api_health, url, token, model)
+    return result
+
+
 @router.post('/api/ai_call')
 async def ai_call(request: Request):
     s = state(request)
