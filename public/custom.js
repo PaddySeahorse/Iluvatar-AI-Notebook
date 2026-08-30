@@ -89,4 +89,29 @@
         if (!text || typeof text !== 'string') return;
         fillAndSend(text);
     });
+
+    const seenCodes = new Set();
+    function notifyParentCreate(code, cellType, idx, ok) {
+        const key = code + '|' + (cellType||'code') + '|' + (idx ?? '');
+        if (seenCodes.has(key)) return;
+        seenCodes.add(key);
+        try { window.parent.postMessage({ type: 'iluvatar:agent_cell', source: 'create_cell', code, cell_type: cellType, index: idx, ok }, '*'); } catch(e) {}
+    }
+    const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            for (const node of m.addedNodes) {
+                if (!(node instanceof HTMLElement)) continue;
+                const text = node.innerText || node.textContent || '';
+                if (text.includes('__AGENT_CELL_CREATE__')) {
+                    try {
+                        const idx = text.indexOf('__AGENT_CELL_CREATE__');
+                        const jsonStr = text.slice(idx + '__AGENT_CELL_CREATE__'.length).trim();
+                        const obj = JSON.parse(jsonStr);
+                        notifyParentCreate(obj.code || '', obj.cell_type || 'code', obj.index, obj.ok);
+                    } catch(e) {}
+                }
+            }
+        }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
 })();

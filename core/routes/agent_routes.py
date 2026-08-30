@@ -42,7 +42,7 @@ async def agent_call(request: Request):
           "messages": [...],          # conversation history (excludes the query)
           "query": "user question",   # the current user message
           "include_context": true,    # attach structured kernel context (default true)
-          "max_steps": 6              # max tool-call rounds (default 6)
+          "max_steps": 0              # max tool-call rounds, 0 = unlimited (default 0)
         }
 
     Event stream:
@@ -61,7 +61,13 @@ async def agent_call(request: Request):
     query = str(data.get('query', '') or '')
     messages = data.get('messages') or []
     include_context = bool(data.get('include_context', True))
-    max_steps = int(data.get('max_steps', 6) or 6)
+    raw_steps = data.get('max_steps')
+    try:
+        max_steps = int(raw_steps) if raw_steps is not None and str(raw_steps).strip() != '' else 0
+    except (TypeError, ValueError):
+        max_steps = 0
+    if max_steps < 0:
+        max_steps = 0
     use_tools_probe = bool(data.get('use_tools_probe', True))
     backend = data.get('backend') or None
 

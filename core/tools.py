@@ -57,24 +57,76 @@ def _summarize(text: str, limit: int = 400) -> str:
 
 
 def _run_cell(args, ctx):
-    code = str(args.get('code', '') or '')
-    if not code.strip():
-        return {'ok': False, 'summary': 'no code provided', 'stdout': '', 'stderr': ''}
     km = ctx['kernel_manager']
+    workspace = ctx.get('workspace_dir', '')
+    is_safe_path = ctx.get('is_safe_path', lambda p: True)
+    code = None
+    filename = None
+    cell_index = None
+    if args.get('cell_index') is not None or args.get('cellId') is not None or args.get('cell_id') is not None:
+        raw_idx = args.get('cell_index', args.get('cellId', args.get('cell_id')))
+        try:
+            cell_index = int(raw_idx)
+        except (TypeError, ValueError):
+            return {'ok': False, 'summary': f"invalid cell_index: {raw_idx!r}", 'stdout': '', 'stderr': ''}
+        if cell_index < 1:
+            return {'ok': False, 'summary': f"cell_index must be >=1, got {cell_index}", 'stdout': '', 'stderr': ''}
+        filename = str(args.get('filename', '') or '').strip()
+        if not filename:
+            try:
+                files = sorted(f for f in os.listdir(workspace) if f.endswith('.ipynb') and os.path.isfile(os.path.join(workspace, f)))
+            except OSError as e:
+                return {'ok': False, 'summary': f"cannot list workspace: {e}", 'stdout': '', 'stderr': ''}
+            if len(files) == 1:
+                filename = files[0]
+            elif len(files) == 0:
+                return {'ok': False, 'summary': 'no notebook found in workspace; create one first', 'stdout': '', 'stderr': ''}
+            else:
+                return {'ok': False, 'summary': f"multiple notebooks exist ({', '.join(files[:5])}); please specify filename", 'stdout': '', 'stderr': ''}
+        if not filename.endswith('.ipynb') or not is_safe_path(filename):
+            return {'ok': False, 'summary': 'invalid or unsafe filename', 'stdout': '', 'stderr': ''}
+        filepath = os.path.join(workspace, filename)
+        if not os.path.exists(filepath):
+            return {'ok': False, 'summary': f"notebook '{filename}' not found", 'stdout': '', 'stderr': ''}
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                nb = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            return {'ok': False, 'summary': f"cannot read notebook: {e}", 'stdout': '', 'stderr': ''}
+        cells = nb.get('cells', []) if isinstance(nb, dict) else []
+        if cell_index > len(cells):
+            return {'ok': False, 'summary': f"cell_index {cell_index} out of range (notebook has {len(cells)} cells)", 'stdout': '', 'stderr': ''}
+        cell = cells[cell_index - 1]
+        if cell.get('cell_type') != 'code':
+            return {'ok': False, 'summary': f"cell {cell_index} is not a code cell (type={cell.get('cell_type')})", 'stdout': '', 'stderr': ''}
+        src = cell.get('source', '')
+        code = ''.join(src) if isinstance(src, list) else str(src)
+        if not code.strip():
+            return {'ok': False, 'summary': f"cell {cell_index} is empty", 'stdout': '', 'stderr': '', 'data': {'filename': filename, 'cell_index': cell_index}}
+    else:
+        code = str(args.get('code', '') or '')
+        filename = str(args.get('filename', '') or '').strip() or None
+        cell_index = None
+        if not code.strip():
+            return {'ok': False, 'summary': 'no code or cell_index provided', 'stdout': '', 'stderr': ''}
     try:
         result = km.execute(code)
     except Exception as e:
-        return {'ok': False, 'summary': f"kernel execution failed: {e}", 'stdout': '', 'stderr': str(e)}
+        return {'ok': False, 'summary': f"kernel execution failed: {e}", 'stdout': '', 'stderr': str(e), 'data': {'filename': filename, 'cell_index': cell_index, 'code': code[:500]}}
     stdout = result.get('stdout') or ''
     stderr = result.get('stderr') or ''
     ok = bool(result.get('success', False)) and not stderr
-    summary = _summarize(stdout or stderr or ('ok' if ok else 'error'))
+    if cell_index is not None:
+        summary = f"executed cell {cell_index}" + (f" from '{filename}'" if filename else "") + f": {_summarize(stdout or stderr or ('ok' if ok else 'error'))}"
+    else:
+        summary = _summarize(stdout or stderr or ('ok' if ok else 'error'))
     return {
         'ok': ok,
         'summary': summary,
         'stdout': _clip(stdout),
         'stderr': _clip(stderr),
         'plots': int(len(result.get('plots') or [])),
+        'data': {'filename': filename, 'cell_index': cell_index, 'code': code[:6000]},
     }
 
 
@@ -166,17 +218,45 @@ def _kernel_status(args, ctx):
     }
 
 
+def _create_cell(args, ctx):
+    code = str(args.get('code', '') or '')
+    cell_type = str(args.get('cell_type', 'code') or 'code').strip().lower()
+    if cell_type not in ('code', 'markdown'):
+        cell_type = 'code'
+    if not code.strip():
+        return {'ok': False, 'summary': 'no content provided', 'data': {}}
+    index = args.get('index', args.get('position'))
+    if index is not None:
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return {'ok': False, 'summary': f"invalid index: {index!r}", 'data': {}}
+    preview = _summarize(code, 200)
+    if index is not None:
+        summary = f"created {cell_type} cell at {index}: {preview}"
+    else:
+        summary = f"created {cell_type} cell: {preview}"
+    return {
+        'ok': True,
+        'summary': summary,
+        'data': {'cell_type': cell_type, 'code': code[:6000], 'index': index},
+    }
+
+
 TOOL_DEFS = {
     'run_cell': {
-        'description': 'Execute a Python code cell in the Jupyter kernel. '
-                       'Use this to run experiments, verify hypotheses, compute values or '
-                       'inspect runtime objects. Returns stdout, stderr and result summary.',
+        'description': 'Execute an existing notebook cell by its index. The cell index follows '
+                       'the [cell N] numbering shown by read_nb. Loads the cell source from the '
+                       'notebook file and executes it in the kernel. Prefer this over raw code. '
+                       'Fallback `code` is kept for ad-hoc probing.',
         'parameters': {
             'type': 'object',
             'properties': {
-                'code': {'type': 'string', 'description': 'The Python code to execute'},
+                'cell_index': {'type': 'integer', 'description': '1-based index of an existing code cell (as shown by read_nb)'},
+                'filename': {'type': 'string', 'description': 'Notebook filename (.ipynb) in workspace; omit only when a single notebook exists'},
+                'code': {'type': 'string', 'description': 'Raw Python code (deprecated fallback; use cell_index instead)'},
             },
-            'required': ['code'],
+            'required': [],
         },
         'func': _run_cell,
     },
@@ -213,6 +293,28 @@ TOOL_DEFS = {
         'description': 'Check whether the Python kernel and its watchdog are alive.',
         'parameters': {'type': 'object', 'properties': {}},
         'func': _kernel_status,
+    },
+    'create_cell': {
+        'description': 'Create a new cell in the user\'s current Notebook. Only creates the cell, '
+                       'does NOT execute it. Use this to deliver reusable code or markdown. '
+                       'Index is 0-based insertion position (0 = top, omit = append, K = after K cells / after [cell K]).',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'code': {'type': 'string', 'description': 'Cell content (Python code or markdown text)'},
+                'cell_type': {
+                    'type': 'string',
+                    'enum': ['code', 'markdown'],
+                    'description': 'Cell type, defaults to "code"',
+                },
+                'index': {
+                    'type': 'integer',
+                    'description': '0-based insertion position. 0 = before first cell, 1 = after [cell 1], omit = append to end',
+                },
+            },
+            'required': ['code'],
+        },
+        'func': _create_cell,
     },
 }
 

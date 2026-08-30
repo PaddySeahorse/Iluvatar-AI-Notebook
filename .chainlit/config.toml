@@ -8,7 +8,7 @@ mask_user_env = false
 allow_origins = ["*"]
 
 [features]
-unsafe_allow_html = false
+unsafe_allow_html = true
 latex = false
 user_message_markdown = true
 user_message_autoscroll = true
@@ -46,7 +46,7 @@ confirm_new_chat = true
 cot = "full"
 alert_style = "classic"
 custom_css = "/public/custom.css?v=260828c"
-custom_js = "/public/custom.js?v=260828c"
+custom_js = "/public/custom.js?v=260830a"
 
 [meta]
 generated_by = "2.12.0"
