@@ -7,7 +7,7 @@ Coverage:
   - pre_launch injects IXUCA env vars
   - send_signal performs GPU-aware interrupt for SIGINT
   - cleanup releases GPU resources
-  - _get_assigned_gpu resolves devices from env / ixuca-smi / default
+  - _get_assigned_gpu resolves devices from env / ixsmi / default
   - register_provisioner is idempotent
 """
 
@@ -54,59 +54,36 @@ class TestGetAssignedGpu:
 
         assert prov._get_assigned_gpu() == "2,3"
 
-    def test_uses_first_gpu_from_ixuca_smi(self, monkeypatch, mocker):
+    def test_uses_first_gpu_from_ixsmi(self, monkeypatch, mocker):
+        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
+        calls = []
+
+        def fake_run(args, *a, **k):
+            calls.append(args)
+            return _completed(stdout="0\n1\n2\n")
+
+        mocker.patch("core.iluvatar_provisioner.subprocess.run", side_effect=fake_run)
+        prov = _make_provisioner()
+
+        assert prov._get_assigned_gpu() == "0"
+        # Single-path probe: exactly one ixsmi enumeration call.
+        assert calls == [["ixsmi", "--query-gpu=index", "--format=csv,noheader"]]
+
+    def test_defaults_to_zero_when_ixsmi_missing(self, monkeypatch, mocker):
         monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
         mocker.patch(
             "core.iluvatar_provisioner.subprocess.run",
-            return_value=_completed(stdout="0\n1\n2\n"),
+            side_effect=FileNotFoundError("ixsmi not found"),
         )
         prov = _make_provisioner()
 
         assert prov._get_assigned_gpu() == "0"
-
-    def test_falls_back_to_ixsmi_when_ixuca_smi_missing(self, monkeypatch, mocker):
-        """CoreX-only hosts: ixuca-smi absent, enumeration via ixsmi."""
-        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
-        mocker.patch(
-            "core.iluvatar_provisioner.subprocess.run",
-            side_effect=[
-                FileNotFoundError("ixuca-smi not found"),
-                _completed(stdout="3\n"),
-            ],
-        )
-        prov = _make_provisioner()
-
-        assert prov._get_assigned_gpu() == "3"
-
-    def test_falls_back_to_ixsmi_when_ixuca_smi_fails(self, monkeypatch, mocker):
-        """ixuca-smi present but broken — ixsmi still resolves the device."""
-        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
-        mocker.patch(
-            "core.iluvatar_provisioner.subprocess.run",
-            side_effect=[
-                _completed(stdout="", returncode=1),
-                _completed(stdout="7\n8\n"),
-            ],
-        )
-        prov = _make_provisioner()
-
-        assert prov._get_assigned_gpu() == "7"
 
     def test_defaults_to_zero_when_both_clis_missing(self, monkeypatch, mocker):
         monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
         mocker.patch(
             "core.iluvatar_provisioner.subprocess.run",
             side_effect=FileNotFoundError("no GPU CLI installed"),
-        )
-        prov = _make_provisioner()
-
-        assert prov._get_assigned_gpu() == "0"
-
-    def test_defaults_to_zero_when_ixuca_smi_missing(self, monkeypatch, mocker):
-        monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
-        mocker.patch(
-            "core.iluvatar_provisioner.subprocess.run",
-            side_effect=FileNotFoundError("ixuca-smi not found"),
         )
         prov = _make_provisioner()
 
@@ -342,17 +319,16 @@ class TestSendSignal:
 # --------------------------------------------------------------------------- #
 
 class TestGpuInterrupt:
-    """_iluvatar_gpu_interrupt: ixuca-smi primary, torch fallback."""
+    """_iluvatar_gpu_interrupt: torch device probe via async subprocess."""
 
     @pytest.mark.asyncio
-    async def test_succeeds_via_ixuca_smi(self, monkeypatch, mocker):
+    async def test_succeeds_via_torch_probe(self, monkeypatch, mocker):
         monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
         mocker.patch(
             "core.iluvatar_provisioner.subprocess.run",
             return_value=_completed(stdout="0\n"),
         )
 
-        # Mock the async subprocess for the interrupt call.
         mock_proc = mocker.MagicMock()
         mock_proc.returncode = 0
         mock_proc.wait = mocker.AsyncMock(return_value=0)
@@ -364,39 +340,27 @@ class TestGpuInterrupt:
         prov = _make_provisioner()
         await prov._iluvatar_gpu_interrupt()
 
-        # ixuca-smi --kill-compute was called
         import core.iluvatar_provisioner as mod
         mod.asyncio.create_subprocess_exec.assert_awaited_once()
         args = mod.asyncio.create_subprocess_exec.call_args.args
-        assert "ixuca-smi" in args
-        assert "--kill-compute" in args
+        assert args[0] == "python"
+        assert "torch.cuda.set_device" in args[2]
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_torch_when_ixuca_smi_missing(self, monkeypatch, mocker):
+    async def test_does_not_raise_when_torch_missing(self, monkeypatch, mocker):
         monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
         mocker.patch(
             "core.iluvatar_provisioner.subprocess.run",
             return_value=_completed(stdout="0\n"),
         )
-
-        # First create_subprocess_exec (ixuca-smi) raises FileNotFoundError,
-        # second (torch) succeeds.
-        mock_proc = mocker.MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.wait = mocker.AsyncMock(return_value=0)
         mocker.patch(
             "core.iluvatar_provisioner.asyncio.create_subprocess_exec",
-            new=mocker.AsyncMock(
-                side_effect=[FileNotFoundError("ixuca-smi not found"), mock_proc]
-            ),
+            new=mocker.AsyncMock(side_effect=FileNotFoundError("python not found")),
         )
 
         prov = _make_provisioner()
+        # Must not raise; the caller always falls back to standard SIGINT.
         await prov._iluvatar_gpu_interrupt()
-
-        # Two calls: ixuca-smi (failed) then torch (succeeded)
-        import core.iluvatar_provisioner as mod
-        assert mod.asyncio.create_subprocess_exec.await_count == 2
 
     @pytest.mark.asyncio
     async def test_does_not_raise_on_all_failures(self, monkeypatch, mocker):
@@ -421,21 +385,14 @@ class TestGpuInterrupt:
 # --------------------------------------------------------------------------- #
 
 class TestCleanup:
-    """cleanup: GPU memory reset on shutdown, skip on restart."""
+    """cleanup: delegates to LocalProvisioner (no GPU-specific teardown)."""
 
     @pytest.mark.asyncio
-    async def test_resets_gpu_memory_on_shutdown(self, monkeypatch, mocker):
+    async def test_delegates_to_super_without_gpu_reset(self, monkeypatch, mocker):
         monkeypatch.delenv("ILUVATAR_GPU_ASSIGNMENT", raising=False)
-        mocker.patch(
-            "core.iluvatar_provisioner.subprocess.run",
-            return_value=_completed(stdout="0\n"),
-        )
-        mock_proc = mocker.MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.wait = mocker.AsyncMock(return_value=0)
         mock_create = mocker.patch(
             "core.iluvatar_provisioner.asyncio.create_subprocess_exec",
-            new=mocker.AsyncMock(return_value=mock_proc),
+            new=mocker.AsyncMock(),
         )
         mock_super_cleanup = mocker.patch.object(
             LocalProvisioner, "cleanup",
@@ -445,10 +402,8 @@ class TestCleanup:
         prov = _make_provisioner()
         await prov.cleanup(restart=False)
 
-        # ixuca-smi --reset-memory was called
-        args = mock_create.call_args.args
-        assert "ixuca-smi" in args
-        assert "--reset-memory" in args
+        # Pure delegation: no extra GPU subprocess, super receives the flag.
+        mock_create.assert_not_awaited()
         mock_super_cleanup.assert_awaited_once_with(False)
 
     @pytest.mark.asyncio
