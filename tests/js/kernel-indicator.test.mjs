@@ -37,7 +37,7 @@ function makeKernelStatusDom() {
     const dot = root._attach('.status-dot', new FakeElement());
     const text = root._attach('.status-text', new FakeElement());
     dot.className = 'status-dot online';
-    text.innerText = 'Python 3 (天数智芯 BI-150)';
+    text.innerText = 'Python 3 (Iluvatar GPU)';
     return { root, dot, text };
 }
 
@@ -85,9 +85,9 @@ test('KernelIndicator: setState idle maps to the online CSS class', () => {
     try {
         const ki = new KernelIndicator();
         ki.setState('busy', '执行中');
-        ki.setState('idle', 'Python 3 (天数智芯 BI-150)');
+        ki.setState('idle', 'Python 3 (Iluvatar GPU)');
         assert.equal(dot.className, 'status-dot online');
-        assert.equal(text.innerText, 'Python 3 (天数智芯 BI-150)');
+        assert.equal(text.innerText, 'Python 3 (Iluvatar GPU)');
         assert.equal(ki.getState(), 'idle');
     } finally {
         restore();

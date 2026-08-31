@@ -45,6 +45,7 @@ import {
 import { SSEKernelClient } from './sse-client.js';
 import { StreamOutputRenderer } from './output-renderer.js';
 import { KernelIndicator } from './kernel-indicator.js';
+import { GpuModal } from './gpu-modal.js';
 import { TerminalPanel } from './terminal/terminal-panel.js';
 import { bindTerminalShortcuts } from './terminal/terminal-shortcuts.js';
 
@@ -294,14 +295,14 @@ function addInitialCells() {
         id: 'cell_' + Math.random().toString(36).substr(2, 9),
         type: 'markdown',
         content: `# 🚀 天数智芯 AI-First 智能笔记本 (Iluvatar AI Notebook)
-这是一个为AI开发者打造的**国产算力（天数智芯 BI-150）加速的智能 Notebook 环境**。
+这是一个为AI开发者打造的**国产算力（Iluvatar GPU）加速的智能 Notebook 环境**。
 
 ### ✨ 特性
 1. **持久化 Python 变量环境**：不同单元格之间的变量和库导入会持续存在。
 2. **Matplotlib 绘图集成**：自动捕获 Matplotlib 图表，并在单元格输出区即时展示。
 3. **AI Code Copilot**：在每个单元格下方输入提示词，让 AI 帮您编写或优化代码。
 4. **一键 AI 调试 (AI Debug)**：代码运行出错时，点击一键调试，自动诊断 traceback 并生成修复代码。
-5. **实时 GPU 硬件看板**：监控天数智芯 BI-150 GPU 显存 (VRAM)、利用率、功率及温度状态。
+5. **实时 GPU 硬件看板**：监控 Iluvatar GPU 显存 (VRAM)、利用率、功率及温度状态。
 
 *双击本单元格即可开始编辑 Markdown 格式文本。*`,
         output: null,
@@ -318,7 +319,7 @@ function addInitialCells() {
 import numpy as np
 import matplotlib.pyplot as plt
 
-print("正在初始化天数智芯 BI-150 运算环境...")
+print("正在初始化 Iluvatar GPU 运算环境...")
 x = np.linspace(0, 10, 100)
 y = np.sin(x) * np.exp(-x/3)
 
@@ -328,7 +329,7 @@ print(f"成功计算了 {total_points} 个数据点。")
 
 # 绘图（务必调用 plt.show() 才会内嵌显示）
 plt.figure(figsize=(7, 3.5))
-plt.plot(x, y, label='Loss Curve (BI-150)', color='#00f2fe', linewidth=2)
+plt.plot(x, y, label='Loss Curve', color='#00f2fe', linewidth=2)
 plt.title("Iluvatar GPU Simulated Training Loss")
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -950,9 +951,12 @@ function setupEventListeners() {
 
     // GPU Status Modal
     const gpuModal = document.getElementById('gpuModal');
+    const gpuModalView = new GpuModal(document);
     document.getElementById('gpuDashboard').addEventListener('click', () => {
         gpuModal.classList.add('open');
         state.isGpuModalOpen = true;
+        // Refresh immediately so the modal never shows stale placeholders.
+        fetchGpuStatus().then(updateGpuDisplay).catch(() => {});
     });
     document.getElementById('closeGpuBtn').addEventListener('click', () => {
         gpuModal.classList.remove('open');
@@ -1313,17 +1317,7 @@ function updateGpuDisplay(data) {
 
     // If Details Modal is open, update modal fields
     if (state.isGpuModalOpen) {
-        const modalTemp = document.getElementById('gpuModalTemp');
-        const modalPower = document.getElementById('gpuModalPower');
-        const modalStatus = document.getElementById('gpuModalStatus');
-        const modalVramUsed = document.getElementById('gpuModalVramUsed');
-        const modalVramBar = document.getElementById('gpuModalVramBar');
-
-        if (modalTemp) modalTemp.innerText = `${data.temperature}°C`;
-        if (modalPower) modalPower.innerText = `${data.power_draw} W`;
-        if (modalStatus) modalStatus.innerText = data.status;
-        if (modalVramUsed) modalVramUsed.innerText = `${data.vram_used} MB`;
-        if (modalVramBar) modalVramBar.style.width = `${vramPercent}%`;
+        gpuModalView.update(data);
     }
 }
 

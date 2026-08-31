@@ -279,14 +279,14 @@
     <div class="modal-overlay" id="gpuModal" style="display: none;">
         <div class="modal-card gpu-card">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-microchip" aria-hidden="true"></i> 国产算力详情 - 天数智芯 BI-150</h2>
+                <h2><i class="fa-solid fa-microchip" aria-hidden="true"></i> 国产算力详情 - <span id="gpuModalName">Iluvatar GPU</span></h2>
                 <button id="closeGpuBtn" class="close-modal-btn" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="gpu-grid">
                     <div class="gpu-stat-box">
-                        <div class="gpu-stat-title">芯片架构</div>
-                        <div class="gpu-stat-large-val">BI-150 / MR-100</div>
+                        <div class="gpu-stat-title">芯片型号</div>
+                        <div class="gpu-stat-large-val" id="gpuModalArch">Iluvatar GPU</div>
                         <div class="gpu-stat-sub">天数智芯 (Iluvatar Corex)</div>
                     </div>
                     <div class="gpu-stat-box">
@@ -310,35 +310,27 @@
                     <h3 class="section-title">计算显存配置 (VRAM)</h3>
                     <div class="gpu-vram-detail-wrapper">
                         <div class="gpu-vram-text">
-                            <span id="gpuModalVramUsed">3520 MB</span> / <span>32768 MB (32GB HBM2)</span>
+                            <span id="gpuModalVramUsed">-- MB</span> / <span id="gpuModalVramTotal">-- MB</span>
                         </div>
                         <div class="vram-bar-full">
-                            <div class="vram-bar-used" id="gpuModalVramBar" style="width: 10.7%"></div>
+                            <div class="vram-bar-used" id="gpuModalVramBar" style="width: 0%"></div>
                         </div>
-                        <div class="vram-subtext">显存带宽: 1.2 TB/s | 显存类型: HBM2 极速显存</div>
+                        <div class="vram-subtext">显存容量与占用实时上报自设备驱动</div>
                     </div>
                 </div>
 
                 <div class="gpu-details-section">
-                    <h3 class="section-title">硬件参数规格</h3>
+                    <h3 class="section-title">硬件运行参数</h3>
                     <table class="specs-table">
                         <tr>
-                            <td>浮点算力 (FP32)</td>
-                            <td>37 TFLOPS</td>
-                            <td>混合算力 (FP16/BF16)</td>
-                            <td>147 TFLOPS</td>
-                        </tr>
-                        <tr>
                             <td>核心频率</td>
-                            <td>1350 MHz</td>
-                            <td>制造工艺</td>
-                            <td>7nm FinFET</td>
+                            <td id="gpuModalCoreClock">--</td>
+                            <td>显存频率</td>
+                            <td id="gpuModalMemClock">--</td>
                         </tr>
                         <tr>
-                            <td>PCIe 接口协议</td>
-                            <td>Gen4 x16</td>
-                            <td>驱动版本</td>
-                            <td>Iluvatar SDK v2.8.0</td>
+                            <td>数据来源</td>
+                            <td colspan="3">设备实时遥测（pynvml / ixsmi）</td>
                         </tr>
                     </table>
                 </div>

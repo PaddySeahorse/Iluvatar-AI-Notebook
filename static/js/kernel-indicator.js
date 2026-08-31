@@ -26,7 +26,7 @@ const STATE_TO_CSS_CLASS = {
  * @example
  *   const indicator = new KernelIndicator();
  *   indicator.setState('busy', '正在执行 Python 代码…');
- *   indicator.setState('idle', 'Python 3 (天数智芯 BI-150)');
+ *   indicator.setState('idle', 'Python 3 (Iluvatar GPU)');
  */
 export class KernelIndicator {
     /**
