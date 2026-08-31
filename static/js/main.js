@@ -953,19 +953,21 @@ function setupEventListeners() {
     const gpuModal = document.getElementById('gpuModal');
     const gpuModalView = new GpuModal(document);
     document.getElementById('gpuDashboard').addEventListener('click', () => {
-        gpuModal.classList.add('open');
+        // The modal carries an inline `display: none` in the HTML; toggling
+        // only the `open` class (opacity/pointer-events) is not enough.
+        gpuModal.style.display = 'flex';
+        requestAnimationFrame(() => gpuModal.classList.add('open'));
         state.isGpuModalOpen = true;
         // Refresh immediately so the modal never shows stale placeholders.
         fetchGpuStatus().then(updateGpuDisplay).catch(() => {});
     });
-    document.getElementById('closeGpuBtn').addEventListener('click', () => {
+    const closeGpuModal = () => {
         gpuModal.classList.remove('open');
+        gpuModal.style.display = 'none';
         state.isGpuModalOpen = false;
-    });
-    document.getElementById('closeGpuBottomBtn').addEventListener('click', () => {
-        gpuModal.classList.remove('open');
-        state.isGpuModalOpen = false;
-    });
+    };
+    document.getElementById('closeGpuBtn').addEventListener('click', closeGpuModal);
+    document.getElementById('closeGpuBottomBtn').addEventListener('click', closeGpuModal);
 
     // Sidebar Tabs navigation
     const aiAssistantTabBtn = document.getElementById('aiAssistantTabBtn');
