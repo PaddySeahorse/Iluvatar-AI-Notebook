@@ -62,6 +62,23 @@ const activeSseClients = new Map();
 // call sites don't need to change.
 const kernelIndicator = new KernelIndicator();
 
+let currentKernelDisplayName = 'Python 3';
+window.currentKernelDisplayName = currentKernelDisplayName;
+
+function buildKernelLabel(gpuData) {
+    if (!gpuData || !gpuData.gpu_available || !gpuData.name) return 'Python 3';
+    return `Python 3 (${gpuData.name})`;
+}
+
+async function refreshKernelLabel() {
+    try {
+        const data = await fetchGpuStatus();
+        currentKernelDisplayName = buildKernelLabel(data);
+        window.currentKernelDisplayName = currentKernelDisplayName;
+        kernelIndicator.setState(kernelIndicator.getState(), currentKernelDisplayName);
+    } catch {}
+}
+
 function getChainlitFrame() {
     return document.getElementById('chainlitFrame');
 }
@@ -1183,7 +1200,7 @@ function runCell(id) {
             cell.elapsedTime = (performance.now() - startedAt) / 1000;
             cell.isExecuting = false;
             activeSseClients.delete(cell.id);
-            setKernelStatus('online', 'Python 3 (天数智芯 BI-150)');
+            setKernelStatus('online', currentKernelDisplayName);
             const out = cell.output || {};
             const summary = (out.stdout && out.stdout.trim())
                 || (out.stderr && out.stderr.trim())
@@ -1239,6 +1256,9 @@ let gpuTelemetryInterval = null;
 function startGpuTelemetry() {
     fetchGpuStatus()
         .then(data => {
+            currentKernelDisplayName = buildKernelLabel(data);
+            window.currentKernelDisplayName = currentKernelDisplayName;
+            kernelIndicator.setState(kernelIndicator.getState(), currentKernelDisplayName);
             const gpuDashboard = document.getElementById('gpuDashboard');
             if (!data.gpu_available) {
                 if (gpuDashboard) {

@@ -188,11 +188,12 @@ export function exportNotebookAsIpynb() {
     const titleEl = document.getElementById('notebookTitle');
     const title = titleEl ? titleEl.value : 'Untitled_Iluvatar_Notebook.ipynb';
 
+    const displayName = (typeof window !== 'undefined' && window.currentKernelDisplayName) || 'Python 3';
     return {
         cells: ipynbCells,
         metadata: {
             kernelspec: {
-                display_name: 'Python 3 (天数智芯 BI-150)',
+                display_name: displayName,
                 language: 'python',
                 name: 'python3'
             },

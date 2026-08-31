@@ -136,11 +136,17 @@ async def create_file(request: Request):
 
     filepath = os.path.join(workspace, filename)
 
+    try:
+        from core.gpu import get_real_gpu_state
+        _gpu = get_real_gpu_state()
+        _display = f"Python 3 ({_gpu['name']})" if _gpu.get('gpu_available') and _gpu.get('name') else "Python 3"
+    except Exception:
+        _display = "Python 3"
     default_notebook = {
         "cells": [],
         "metadata": {
             "kernelspec": {
-                "display_name": "Python 3 (天数智芯 BI-150)",
+                "display_name": _display,
                 "language": "python",
                 "name": "python3",
             },

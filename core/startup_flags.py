@@ -6,8 +6,7 @@ this module probes the host for an Iluvatar GPU, records the outcome in
 environment variables:
 
 - ``USE_ILUVATAR_PROVISIONER`` — set from the detection result: ``true`` when
-  an ``ixuca-smi`` / ``ixsmi`` tool reports at least one GPU (same CLI
-  priority as :mod:`core.iluvatar_provisioner`).
+  ``ixsmi`` reports at least one GPU.
 - ``USE_OPENAI_SDK`` — forced to ``1`` unless the deployment explicitly set
   ``0``; the ``openai`` package is a hard dependency and ``requests`` remains
   the escape hatch via that explicit ``0``.
@@ -30,8 +29,7 @@ logger = logging.getLogger(__name__)
 
 SETTING_FILE_NAME = 'setting.json'
 
-# Same CLI priority as the provisioner: IXUCA runtime first, CoreX SDK second.
-_GPU_CLI_PRIORITY = ('ixuca-smi', 'ixsmi')
+_GPU_CLI_PRIORITY = ('ixsmi',)
 _GPU_QUERY_ARGS = ('--query-gpu=index', '--format=csv,noheader')
 _GPU_CMD_TIMEOUT = 5
 
@@ -40,8 +38,7 @@ def detect_iluvatar_device():
     """Return the GPU CLI name that reported a device, or ``None``.
 
     A CLI counts only when it is on ``PATH``, exits 0 and lists at least one
-    GPU index. ``ixuca-smi`` (IXUCA runtime) is tried before ``ixsmi``
-    (CoreX SDK, IXUCA-less hosts).
+    GPU index.
     """
     for cli in _GPU_CLI_PRIORITY:
         if not shutil.which(cli):

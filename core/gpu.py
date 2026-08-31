@@ -6,6 +6,25 @@ be reached, a safe zeroed-out fallback state is returned so the dashboard still
 renders.
 """
 
+import shutil
+import subprocess
+
+
+def _get_ixsmi_device_name():
+    if not shutil.which("ixsmi"):
+        return None
+    for args in (
+        ["ixsmi", "--query-gpu=name", "--format=csv,noheader"],
+        ["ixsmi", "--query-gpu=gpu_name", "--format=csv,noheader"],
+    ):
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip().splitlines()[0].strip()
+        except Exception:
+            continue
+    return None
+
 
 def get_real_gpu_state():
     try:
@@ -46,9 +65,19 @@ def get_real_gpu_state():
         else:
             status = 'Idle'
 
+        try:
+            raw_name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(raw_name, bytes):
+                raw_name = raw_name.decode('utf-8', errors='ignore')
+            name = raw_name.strip() if raw_name else None
+        except Exception:
+            name = None
+        if not name:
+            name = _get_ixsmi_device_name() or 'Iluvatar GPU'
+
         return {
             'gpu_available': True,
-            'name': 'Iluvatar MR-V100',
+            'name': name,
             'vram_total': vram_total,
             'vram_used': vram_used,
             'utilization': utilization,
@@ -59,6 +88,20 @@ def get_real_gpu_state():
             'status': status
         }
     except Exception as e:
+        fallback_name = _get_ixsmi_device_name()
+        if fallback_name:
+            return {
+                'gpu_available': True,
+                'name': fallback_name,
+                'vram_total': 0,
+                'vram_used': 0,
+                'utilization': 0.0,
+                'temperature': 0.0,
+                'power_draw': 0.0,
+                'core_clock': 0,
+                'memory_clock': 0,
+                'status': 'Idle'
+            }
         return {
             'gpu_available': False,
             'name': None,

@@ -25,7 +25,7 @@ from core.startup_flags import apply_startup_flags
 from core.utils import is_safe_path as _is_safe_path_impl
 
 # Hardware/transport flags must be pinned before KERNEL_NAME is decided:
-# the probe detects Iluvatar GPUs (ixuca-smi/ixsmi), persists setting.json
+# the probe detects Iluvatar GPUs (ixsmi), persists setting.json
 # and forces USE_OPENAI_SDK=1 unless the deployment set 0 explicitly.
 apply_startup_flags()
 

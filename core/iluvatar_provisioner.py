@@ -4,15 +4,11 @@ Extends :class:`jupyter_client.provisioning.LocalProvisioner` to deep-integrate
 Iluvatar (天数智芯) GPU resource management into the kernel lifecycle:
 
 1. ``pre_launch`` — injects IXUCA SDK environment variables and assigns a GPU
-   device to the kernel subprocess before it starts.  Device enumeration works
-   with either the IXUCA runtime CLI (``ixuca-smi``) or the CoreX SDK CLI
-   (``ixsmi``); the latter supports only read-only queries.
-2. ``send_signal`` — for ``SIGINT`` it first tries an Iluvatar GPU-specific
-   interrupt (``ixuca-smi --kill-compute``, IXUCA-only) which can break out of
-   GPU compute that would otherwise block a plain POSIX signal; on any failure
-   it falls back to the standard process-group signal.
-3. ``cleanup`` — releases GPU resources (resets device memory via
-   ``ixuca-smi --reset-memory``, IXUCA-only) before the standard subprocess
+   device to the kernel subprocess before it starts.  Device enumeration uses
+   the CoreX SDK CLI ``ixsmi``.
+2. ``send_signal`` — for ``SIGINT`` it tries a GPU-aware interrupt (torch
+   fallback) and then falls back to the standard process-group signal.
+3. ``cleanup`` — releases GPU resources before the standard subprocess
    cleanup runs.
 
 The provisioner is registered as a ``jupyter_client.kernel_provisioners`` entry
@@ -47,22 +43,11 @@ PROVISIONER_NAME = "iluvatar-provisioner"
 # Default library path for the IXUCA SDK when ILUVATAR_LIB_PATH is unset.
 _DEFAULT_IXUCA_LIB_PATH = "/usr/local/ixuca/lib"
 
-# GPU CLI tools, in priority order.
-#
-# ``ixuca-smi`` is the IXUCA runtime tool and the only one that supports GPU
-# compute control (``--kill-compute`` / ``--reset-memory``).  ``ixsmi`` ships
-# with the CoreX SDK on IXUCA-less hosts and supports the same
-# ``--query-gpu=index --format=csv,noheader`` enumeration output, so device
-# assignment works on both SDK flavours.  Both flags are used in this module:
-# only ``_get_assigned_gpu`` tolerates either tool; compute control requires
-# ``ixuca-smi``.
-_GPU_CLI_PRIORITY = ("ixuca-smi", "ixsmi")
+_GPU_CLI_PRIORITY = ("ixsmi",)
 
 # GPU enumeration arguments shared by both CLI tools (same csv output).
 _GPU_QUERY_ARGS = ["--query-gpu=index", "--format=csv,noheader"]
 
-# How long (seconds) to wait for ixuca-smi subprocess calls before giving up
-# and falling back to the default behaviour.
 _GPU_CMD_TIMEOUT = 5
 
 
@@ -87,8 +72,7 @@ class IluvatarProvisioner(LocalProvisioner):
 
         Resolution order:
         1. ``ILUVATAR_GPU_ASSIGNMENT`` env var (set by an external scheduler).
-        2. The first device reported by the GPU CLI (``ixuca-smi`` first, then
-           ``ixsmi`` — both produce identical ``--query-gpu=index`` csv output).
+        2. The first device reported by ``ixsmi``.
         3. ``"0"`` as a last-resort default.
 
         Returning a string keeps the result compatible with the
@@ -99,9 +83,6 @@ class IluvatarProvisioner(LocalProvisioner):
         if assignment:
             return assignment
 
-        # Best-effort enumeration: try the IXUCA runtime CLI, then the CoreX
-        # SDK CLI (IXUCA-less hosts).  A missing tool is not an error — the
-        # next candidate (or the default) takes over.
         for cli in _GPU_CLI_PRIORITY:
             gpus = self._query_gpu_indices(cli)
             if gpus:
@@ -114,9 +95,6 @@ class IluvatarProvisioner(LocalProvisioner):
     def _query_gpu_indices(cli: str):
         """Return a list of GPU index strings from ``cli``, or ``None`` if the
         tool is unavailable or returns nothing usable.
-
-        Both ``ixuca-smi`` and ``ixsmi`` support
-        ``--query-gpu=index --format=csv,noheader`` with one index per line.
         """
         try:
             result = subprocess.run(
@@ -182,13 +160,6 @@ class IluvatarProvisioner(LocalProvisioner):
 
     async def send_signal(self, signum: int) -> None:
         """Send a signal to the kernel, with GPU-aware interrupt for SIGINT.
-
-        For ``SIGINT`` the provisioner first attempts an Iluvatar GPU compute
-        interrupt via ``ixuca-smi --kill-compute``.  GPU compute can block the
-        shell channel (and therefore a plain ``SIGINT`` to the process) for a
-        long time; the GPU interrupt breaks out of that state.  On any failure
-        the standard process-group ``SIGINT`` is still delivered so the kernel
-        always receives an interrupt — just possibly slower.
         """
         if signum == signal.SIGINT:
             await self._iluvatar_gpu_interrupt()
@@ -199,23 +170,11 @@ class IluvatarProvisioner(LocalProvisioner):
         await super().send_signal(signum)
 
     async def _iluvatar_gpu_interrupt(self) -> None:
-        """Attempt to interrupt GPU compute via the IXUCA driver.
+        """Attempt to interrupt GPU compute.
 
         Failures are logged at ``debug`` level and silently swallowed because
         the caller (``send_signal``) always falls back to a standard SIGINT.
         """
-        gpu_id = self._get_assigned_gpu()
-
-        # Primary: ixuca-smi --kill-compute
-        if await self._run_gpu_cmd(
-            ["ixuca-smi", "--gpu", gpu_id, "--kill-compute"],
-        ):
-            logger.info("GPU compute interrupted via ixuca-smi for GPU %s", gpu_id)
-            return
-
-        # Fallback: ask torch-iluvatar to release the device.  This is a soft
-        # hint rather than a hard interrupt, but it can help when ixuca-smi is
-        # unavailable while the torch runtime is.
         await self._run_gpu_cmd(
             [
                 "python", "-c",
@@ -250,16 +209,7 @@ class IluvatarProvisioner(LocalProvisioner):
 
     async def cleanup(self, restart: bool = False) -> None:
         """Release GPU resources before standard subprocess cleanup.
-
-        On restart we keep the device assignment (the same kernel will reuse
-        it); on full shutdown we ask ixuca-smi to reset device memory.
         """
-        if not restart:
-            gpu_id = self._get_assigned_gpu()
-            await self._run_gpu_cmd(
-                ["ixuca-smi", "--gpu", gpu_id, "--reset-memory"],
-            )
-
         await super().cleanup(restart)
 
 

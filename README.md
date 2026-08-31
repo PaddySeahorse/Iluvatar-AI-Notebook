@@ -18,7 +18,7 @@
 - **结构化上下文** — 将"全量灌入 Notebook 代码"替换为紧凑的内核快照（活动变量表 + 最近 Out 结果 + 最近错误栈摘要），更省 token 且直指运行时状态
 - **暗色/亮色主题** — 一键切换，适配不同使用场景
 - **图表捕获** — 自动捕获 Matplotlib 生成的图表并以 Base64 形式内嵌展示
-- **内核中断** — 通过 jupyter_client control 通道中断，即使 GPU 算子阻塞 shell 也能生效；天数智芯 GPU 还能用 `ixuca-smi --kill-compute` 专用中断
+- **内核中断** — 通过 jupyter_client control 通道中断，即使 GPU 算子阻塞 shell 也能生效
 - **流式输出** — 代码执行过程通过 SSE 实时推送 stdout/stderr，AI 训练过程逐行可见，支持 tqdm `\r` 进度条刷新
 - **富媒体渲染** — 按 MIME 优先级渲染 Jupyter display_data（PNG/HTML/SVG/Markdown/LaTeX/plain）
 - **Tab 代码补全** — 基于 IPython jedi 的运行时补全，输入 `df.` 后按 Tab 弹出方法列表
@@ -89,7 +89,7 @@ pip install openai "litellm[proxy]"
 pip install -e . --no-deps
 # 安装内核描述文件
 jupyter kernelspec install kernels/iluvatar_python --prefix /usr/local
-# 启动时自动经 ixuca-smi/ixsmi 探测天数 GPU 并切换 iluvatar_python 内核；
+# 启动时自动经 ixsmi 探测天数 GPU 并切换 iluvatar_python 内核；
 # 探测结果持久化到 ~/.Iluvatar-AI-Notebook/setting.json，也可显式覆盖：
 # USE_ILUVATAR_PROVISIONER=true python app_fastapi.py
 python app_fastapi.py
