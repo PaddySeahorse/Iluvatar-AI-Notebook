@@ -171,6 +171,10 @@ export class StreamOutputRenderer {
 
     handleError(ename, evalue, traceback) {
         this._hasError = true;
+        const tbText = Array.isArray(traceback) && traceback.length
+            ? stripAnsi(traceback.join('\n'))
+            : '';
+        this._accumulated.stderr += `${ename}: ${evalue}\n${tbText}`;
         const section = this._getOrCreateSection('error', 'output-error-block', 'div');
         const header = document.createElement('div');
         header.className = 'output-error-header';
