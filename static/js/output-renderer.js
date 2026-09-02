@@ -122,70 +122,117 @@ export class StreamOutputRenderer {
 
     // ---- public API (mirrors SSEKernelClient callbacks) ----
 
+    _withAutoScroll(fn) {
+        // Only consider it 'at bottom' if we're within 15px of the actual bottom
+        const isAtBottom = this._container.scrollHeight - this._container.scrollTop <= this._container.clientHeight + 15;
+
+        fn();
+
+        if (isAtBottom && this._container.scrollHeight > this._container.clientHeight) {
+            this._container.scrollTop = this._container.scrollHeight;
+        }
+
+        this._checkHeightAndAddToggle();
+    }
+
+    _checkHeightAndAddToggle() {
+        if (this._container.scrollHeight > 400) {
+            let toggleBtn = this._container.querySelector('.output-toggle-btn');
+            if (!toggleBtn) {
+                toggleBtn = document.createElement('button');
+                toggleBtn.className = 'output-toggle-btn';
+                toggleBtn.textContent = 'Expand';
+                toggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (this._container.classList.contains('expanded')) {
+                        this._container.classList.remove('expanded');
+                        toggleBtn.textContent = 'Expand';
+                        this._container.scrollTop = 0;
+                    } else {
+                        this._container.classList.add('expanded');
+                        toggleBtn.textContent = 'Collapse';
+                    }
+                });
+                this._container.appendChild(toggleBtn);
+            } else if (toggleBtn.parentElement !== this._container) {
+                // Ensure button stays on top/at the end of container
+                this._container.appendChild(toggleBtn);
+            }
+        }
+    }
+
     handleStream(name, text) {
-        if (name !== 'stdout' && name !== 'stderr') name = 'stdout';
-        this._streamBuf[name] += text;
-        this._accumulated[name] += text;
-        const pre = this._getOrCreateSection(
-            name,
-            name === 'stderr' ? 'output-stderr' : 'output-stdout',
-            'pre'
-        );
-        pre.textContent = renderStreamText(this._streamBuf[name]);
+        this._withAutoScroll(() => {
+            if (name !== 'stdout' && name !== 'stderr') name = 'stdout';
+            this._streamBuf[name] += text;
+            this._accumulated[name] += text;
+            const pre = this._getOrCreateSection(
+                name,
+                name === 'stderr' ? 'output-stderr' : 'output-stdout',
+                'pre'
+            );
+            pre.textContent = renderStreamText(this._streamBuf[name]);
+        });
     }
 
     handleDisplayData(data, metadata = {}) {
-        const mime = this._pickMime(data);
-        if (!mime) return;
-        const node = this._renderMime(mime, data[mime], metadata);
-        this._accumulateMime(data, mime);
-        if (!node) return;
-        const sectionName = this._sectionForMime(mime);
-        const className = sectionName === 'plots'
-            ? 'output-plots-container'
-            : sectionName === 'html'
-                ? 'output-html'
-                : 'output-display';
-        const section = this._getOrCreateSection(sectionName, className, 'div');
-        section.appendChild(node);
+        this._withAutoScroll(() => {
+            const mime = this._pickMime(data);
+            if (!mime) return;
+            const node = this._renderMime(mime, data[mime], metadata);
+            this._accumulateMime(data, mime);
+            if (!node) return;
+            const sectionName = this._sectionForMime(mime);
+            const className = sectionName === 'plots'
+                ? 'output-plots-container'
+                : sectionName === 'html'
+                    ? 'output-html'
+                    : 'output-display';
+            const section = this._getOrCreateSection(sectionName, className, 'div');
+            section.appendChild(node);
+        });
     }
 
     handleResult(data, executionCount) {
-        if (executionCount != null) {
-            this._executionCount = executionCount;
-        }
-        const mime = this._pickMime(data);
-        if (!mime) return;
-        const node = this._renderMime(mime, data[mime], {});
-        this._accumulateMime(data, mime);
-        if (!node) return;
-        const section = this._getOrCreateSection('result', 'output-result', 'div');
-        if (!section.childElementCount) {
-            const label = document.createElement('span');
-            label.className = 'output-result-label';
-            label.textContent = `Out[${executionCount != null ? executionCount : ''}]:`;
-            section.appendChild(label);
-        }
-        section.appendChild(node);
+        this._withAutoScroll(() => {
+            if (executionCount != null) {
+                this._executionCount = executionCount;
+            }
+            const mime = this._pickMime(data);
+            if (!mime) return;
+            const node = this._renderMime(mime, data[mime], {});
+            this._accumulateMime(data, mime);
+            if (!node) return;
+            const section = this._getOrCreateSection('result', 'output-result', 'div');
+            if (!section.childElementCount) {
+                const label = document.createElement('span');
+                label.className = 'output-result-label';
+                label.textContent = `Out[${executionCount != null ? executionCount : ''}]:`;
+                section.appendChild(label);
+            }
+            section.appendChild(node);
+        });
     }
 
     handleError(ename, evalue, traceback) {
-        this._hasError = true;
-        const tbText = Array.isArray(traceback) && traceback.length
-            ? stripAnsi(traceback.join('\n'))
-            : '';
-        this._accumulated.stderr += `${ename}: ${evalue}\n${tbText}`;
-        const section = this._getOrCreateSection('error', 'output-error-block', 'div');
-        const header = document.createElement('div');
-        header.className = 'output-error-header';
-        header.textContent = `${ename}: ${evalue}`;
-        section.appendChild(header);
-        if (Array.isArray(traceback) && traceback.length) {
-            const pre = document.createElement('pre');
-            pre.className = 'output-error-traceback';
-            pre.textContent = stripAnsi(traceback.join('\n'));
-            section.appendChild(pre);
-        }
+        this._withAutoScroll(() => {
+            this._hasError = true;
+            const tbText = Array.isArray(traceback) && traceback.length
+                ? '\n' + stripAnsi(traceback.join('\n'))
+                : '';
+            this._accumulated.stderr += `${ename}: ${evalue}\n${tbText}`;
+            const section = this._getOrCreateSection('error', 'output-error-block', 'div');
+            const header = document.createElement('div');
+            header.className = 'output-error-header';
+            header.textContent = `${ename}: ${evalue}`;
+            section.appendChild(header);
+            if (Array.isArray(traceback) && traceback.length) {
+                const pre = document.createElement('pre');
+                pre.className = 'output-error-traceback';
+                pre.textContent = stripAnsi(traceback.join('\n'));
+                section.appendChild(pre);
+            }
+        });
     }
 
     handleStatus(state) {
