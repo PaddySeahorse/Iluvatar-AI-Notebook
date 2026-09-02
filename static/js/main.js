@@ -1154,16 +1154,16 @@ function runCell(id) {
     cell.isExecuting = true;
     cell.success = true;
 
-    // Discard any previous output area so the new execution starts clean
+    // Discard any previous output wrapper so the new execution starts clean
     // (otherwise renderer.js would preserve the old streamed DOM for the
     // now-executing cell). Then render once to create the cell DOM; the
-    // renderer ensures an empty .cell-output-area exists for the executing
+    // renderer ensures an empty .cell-output-wrapper exists for the executing
     // cell. Subsequent stream messages update that container directly (no
     // full re-render) so CodeMirror editors keep their state and focus.
     const prevCellEl = document.getElementById(cell.id);
     if (prevCellEl) {
-        const prevArea = prevCellEl.querySelector('.cell-output-area');
-        if (prevArea) prevArea.remove();
+        const prevWrapper = prevCellEl.querySelector('.cell-output-wrapper');
+        if (prevWrapper) prevWrapper.remove();
     }
     triggerRender();
     setKernelStatus('busy', '正在执行 Python 代码…');
@@ -1172,9 +1172,24 @@ function runCell(id) {
     let outputArea = cellEl && cellEl.querySelector('.cell-output-area');
     if (!outputArea) {
         // Defensive: create one manually if the renderer didn't.
+        const wrapper = document.createElement('div');
+        wrapper.className = 'cell-output-wrapper';
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = 'output-toggle-btn';
+        toggleBtn.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
+        toggleBtn.title = '折叠/展开输出';
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            wrapper.classList.toggle('collapsed');
+        });
+        wrapper.appendChild(toggleBtn);
+
         outputArea = document.createElement('div');
         outputArea.className = 'cell-output-area';
-        if (cellEl) cellEl.appendChild(outputArea);
+        wrapper.appendChild(outputArea);
+
+        if (cellEl) cellEl.appendChild(wrapper);
     }
 
     const streamRenderer = new StreamOutputRenderer(outputArea);

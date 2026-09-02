@@ -401,6 +401,19 @@ function renderCellOutput(cell) {
     const hasHtml = cell.output.html && cell.output.html.trim();
     const hasPlots = cell.output.plots && cell.output.plots.length > 0;
 
+    const wrapper = document.createElement('div');
+    wrapper.className = 'cell-output-wrapper';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'output-toggle-btn';
+    toggleBtn.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
+    toggleBtn.title = '折叠/展开输出';
+    toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        wrapper.classList.toggle('collapsed');
+    });
+    wrapper.appendChild(toggleBtn);
+
     const outputArea = document.createElement('div');
     outputArea.className = 'cell-output-area';
 
@@ -441,7 +454,8 @@ function renderCellOutput(cell) {
         outputArea.appendChild(plotsContainer);
     }
 
-    return outputArea;
+    wrapper.appendChild(outputArea);
+    return wrapper;
 }
 
 function renderDiffView(original, fixed) {
@@ -607,13 +621,13 @@ export function renderCells(cells, activeCellId, callbacks) {
         }
     }
     
-    // Preserve live streaming output areas for executing cells so direct DOM
+    // Preserve live streaming output wrappers for executing cells so direct DOM
     // updates from StreamOutputRenderer survive a re-render triggered by an
     // unrelated UI action (add/delete/move cell) during execution.
-    const liveAreasByCell = new Map();
-    container.querySelectorAll('.cell-output-area').forEach(area => {
-        const owner = area.closest('.cell-container');
-        if (owner && owner.id) liveAreasByCell.set(owner.id, area);
+    const liveWrappersByCell = new Map();
+    container.querySelectorAll('.cell-output-wrapper').forEach(wrapper => {
+        const owner = wrapper.closest('.cell-container');
+        if (owner && owner.id) liveWrappersByCell.set(owner.id, wrapper);
     });
 
     container.innerHTML = '';
@@ -735,13 +749,32 @@ export function renderCells(cells, activeCellId, callbacks) {
         // 3. Cell Output rendering
         if (cell.type === 'code') {
             if (cell.isExecuting) {
-                // Re-attach the live streaming output area if it survived the
+                // Re-attach the live streaming output wrapper if it survived the
                 // rebuild (preserves incremental DOM from StreamOutputRenderer);
                 // otherwise create a fresh empty container for a new execution.
-                const live = liveAreasByCell.get(cell.id);
-                const outputArea = live || document.createElement('div');
-                outputArea.className = 'cell-output-area';
-                cellEl.appendChild(outputArea);
+                const live = liveWrappersByCell.get(cell.id);
+                if (live) {
+                    cellEl.appendChild(live);
+                } else {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'cell-output-wrapper';
+
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.className = 'output-toggle-btn';
+                    toggleBtn.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
+                    toggleBtn.title = '折叠/展开输出';
+                    toggleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        wrapper.classList.toggle('collapsed');
+                    });
+                    wrapper.appendChild(toggleBtn);
+
+                    const outputArea = document.createElement('div');
+                    outputArea.className = 'cell-output-area';
+                    wrapper.appendChild(outputArea);
+
+                    cellEl.appendChild(wrapper);
+                }
             } else if (cell.output) {
                 const hasStdout = cell.output.stdout && cell.output.stdout.trim();
                 const hasStderr = cell.output.stderr && cell.output.stderr.trim();
@@ -749,8 +782,8 @@ export function renderCells(cells, activeCellId, callbacks) {
                 const hasPlots = cell.output.plots && cell.output.plots.length > 0;
 
                 if (hasStdout || hasStderr || hasHtml || hasPlots) {
-                    const outputArea = renderCellOutput(cell);
-                    cellEl.appendChild(outputArea);
+                    const outputWrapper = renderCellOutput(cell);
+                    cellEl.appendChild(outputWrapper);
                 }
 
                 // 4. Debug Action overlay if run failed
