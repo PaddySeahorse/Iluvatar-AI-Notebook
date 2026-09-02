@@ -606,15 +606,53 @@ body {
     box-shadow: 0 0 8px rgba(192, 132, 252, 0.4);
 }
 
+/* Cell Output Area Wrapper */
+.cell-output-wrapper {
+    position: relative;
+    border-top: 1px solid rgba(255,255,255,0.02);
+}
+
+.output-toggle-btn {
+    position: absolute;
+    top: 12px;
+    left: 20px;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: var(--transition-smooth);
+    z-index: 2;
+}
+
+.output-toggle-btn:hover {
+    background: var(--bg-surface-active);
+    color: var(--text-primary);
+}
+
+.cell-output-wrapper.collapsed .output-toggle-btn {
+    transform: rotate(-90deg);
+}
+
+.cell-output-wrapper.collapsed .cell-output-area {
+    display: none;
+}
+
 /* Cell Output Area */
 .cell-output-area {
     background-color: rgba(0,0,0,0.15);
-    border-top: 1px solid rgba(255,255,255,0.02);
     padding: 12px 12px 12px 72px;
     font-family: var(--font-code);
     font-size: 0.85rem;
     line-height: 1.5;
     overflow-x: auto;
+    overflow-y: auto;
+    max-height: 400px;
 }
 
 .output-stdout {
