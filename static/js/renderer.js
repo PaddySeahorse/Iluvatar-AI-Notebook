@@ -441,6 +441,39 @@ function renderCellOutput(cell) {
         outputArea.appendChild(plotsContainer);
     }
 
+    // Add expand/collapse toggle for long outputs
+    const checkHeightAndAddToggle = () => {
+        if (outputArea.scrollHeight > 400) {
+            let toggleBtn = outputArea.querySelector('.output-toggle-btn');
+            if (!toggleBtn) {
+                toggleBtn = document.createElement('button');
+                toggleBtn.className = 'output-toggle-btn';
+                toggleBtn.textContent = 'Expand';
+                toggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (outputArea.classList.contains('expanded')) {
+                        outputArea.classList.remove('expanded');
+                        toggleBtn.textContent = 'Expand';
+                        // scroll back to top of output on collapse
+                        outputArea.scrollTop = 0;
+                    } else {
+                        outputArea.classList.add('expanded');
+                        toggleBtn.textContent = 'Collapse';
+                    }
+                });
+                outputArea.appendChild(toggleBtn);
+            }
+        }
+    };
+
+    // Use ResizeObserver to reliably check height changes e.g. after images load
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => checkHeightAndAddToggle());
+        ro.observe(outputArea);
+    } else {
+        setTimeout(checkHeightAndAddToggle, 100);
+    }
+
     return outputArea;
 }
 
