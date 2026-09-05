@@ -218,6 +218,31 @@ def _kernel_status(args, ctx):
     }
 
 
+def _webfetch(args, ctx):
+    url = str(args.get('url', '') or '').strip()
+    if not url:
+        return {'ok': False, 'summary': 'no url provided', 'data': {}}
+
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request(
+        url,
+        headers={'User-Agent': 'Mozilla/5.0 (Iluvatar AI Notebook)'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            import re
+            text = re.sub(r'<[^>]+>', ' ', html)
+            text = re.sub(r'\s+', ' ', text).strip()
+            return {
+                'ok': True,
+                'summary': f"fetched {len(html)} bytes from {url}",
+                'data': {'content': _clip(text, _MAX_READ_CHARS)}
+            }
+    except Exception as e:
+        return {'ok': False, 'summary': f"failed to fetch {url}: {e}", 'data': {}}
+
 def _create_cell(args, ctx):
     code = str(args.get('code', '') or '')
     cell_type = str(args.get('cell_type', 'code') or 'code').strip().lower()
@@ -315,6 +340,17 @@ TOOL_DEFS = {
             'required': ['code'],
         },
         'func': _create_cell,
+    },
+    'webfetch': {
+        'description': 'Fetch and extract text content from a web page URL. Useful for retrieving documentation or external resources.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'url': {'type': 'string', 'description': 'The URL of the web page to fetch'},
+            },
+            'required': ['url'],
+        },
+        'func': _webfetch,
     },
 }
 

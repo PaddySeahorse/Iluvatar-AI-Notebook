@@ -52,6 +52,7 @@ TOOL_LABELS = {
     'read_nb': '读取笔记本',
     'gpu_status': '查询 GPU 状态',
     'kernel_status': '检查内核状态',
+    'webfetch': '抓取网页',
 }
 
 _PROMPTS_DIR = Path(__file__).resolve().parent / 'prompts'
